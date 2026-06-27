@@ -2,6 +2,7 @@ import React, { Suspense } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { FaceModelProvider } from './context/FaceModelContext';
+import { ThemeProvider } from './context/ThemeContext';
 
 // Lazy load components for better performance
 const Navbar = React.lazy(() => import('./components/Navbar'));
@@ -11,6 +12,9 @@ const Dashboard = React.lazy(() => import('./pages/Dashboard'));
 const Attendance = React.lazy(() => import('./pages/Attendance'));
 const AttendanceHistory = React.lazy(() => import('./pages/AttendanceHistory'));
 const UserManagement = React.lazy(() => import('./pages/UserManagement'));
+const ClassManagement = React.lazy(() => import('./pages/ClassManagement'));
+const SubjectManagement = React.lazy(() => import('./pages/SubjectManagement'));
+const ScheduleManagement = React.lazy(() => import('./pages/ScheduleManagement'));
 
 // Loading component
 const Loading = () => (
@@ -68,6 +72,21 @@ const AppContent = () => {
             <UserManagement />
           </ProtectedRoute>
         } />
+        <Route path="/classes" element={
+          <ProtectedRoute>
+            <ClassManagement />
+          </ProtectedRoute>
+        } />
+        <Route path="/subjects" element={
+          <ProtectedRoute>
+            <SubjectManagement />
+          </ProtectedRoute>
+        } />
+        <Route path="/schedules" element={
+          <ProtectedRoute>
+            <ScheduleManagement />
+          </ProtectedRoute>
+        } />
         {/* Catch-all route */}
         <Route path="*" element={
           <Navigate to="/" replace />
@@ -82,9 +101,11 @@ const AppContent = () => {
 function App() {
   return (
     <AuthProvider>
-      <FaceModelProvider>
-        <AppContent />
-      </FaceModelProvider>
+      <ThemeProvider>
+        <FaceModelProvider>
+          <AppContent />
+        </FaceModelProvider>
+      </ThemeProvider>
     </AuthProvider>
   );
 }

@@ -1,5 +1,4 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
-import * as faceapi from 'face-api.js';
 
 const FaceModelContext = createContext(null);
 
@@ -8,6 +7,7 @@ const MODEL_URL = '/models';
 export function FaceModelProvider({ children }) {
   const [modelsLoaded, setModelsLoaded] = useState(false);
   const [loadingError, setLoadingError] = useState(null);
+  const [faceapi, setFaceapi] = useState(null);
   const loadedRef = useRef(false);
 
   useEffect(() => {
@@ -16,9 +16,11 @@ export function FaceModelProvider({ children }) {
 
     const load = async () => {
       try {
-        await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
-        await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
-        await faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
+        const mod = await import('face-api.js');
+        await mod.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
+        await mod.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
+        await mod.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
+        setFaceapi(mod);
         setModelsLoaded(true);
       } catch (err) {
         console.error('Error loading face-api models:', err);
@@ -29,7 +31,7 @@ export function FaceModelProvider({ children }) {
   }, []);
 
   return (
-    <FaceModelContext.Provider value={{ modelsLoaded, loadingError }}>
+    <FaceModelContext.Provider value={{ faceapi, modelsLoaded, loadingError }}>
       {children}
     </FaceModelContext.Provider>
   );

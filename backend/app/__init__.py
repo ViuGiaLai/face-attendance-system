@@ -24,11 +24,19 @@ def create_app():
     from app.routes.attendance import attendance_bp
     from app.routes.face_recog import face_bp
     from app.routes.users import users_bp
+    from app.routes.classes import classes_bp
+    from app.routes.subjects import subjects_bp
+    from app.routes.schedules import schedules_bp
+    from app.routes.audit import audit_bp
     
     app.register_blueprint(auth_bp, url_prefix='/api/auth')
     app.register_blueprint(attendance_bp, url_prefix='/api/attendance')
     app.register_blueprint(face_bp, url_prefix='/api/face')
     app.register_blueprint(users_bp, url_prefix='/api/users')
+    app.register_blueprint(classes_bp, url_prefix='/api/classes')
+    app.register_blueprint(subjects_bp, url_prefix='/api/subjects')
+    app.register_blueprint(schedules_bp, url_prefix='/api/schedules')
+    app.register_blueprint(audit_bp, url_prefix='/api/audit')
     
     # Create tables
     with app.app_context():

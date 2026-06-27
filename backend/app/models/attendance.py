@@ -13,8 +13,11 @@ class AttendanceLog(db.Model):
     status = db.Column(db.String(20), nullable=False)  # present, absent, late
     confidence = db.Column(db.Float)  # Confidence score from face recognition
     image_path = db.Column(db.String(255))  # Path to captured image
+    class_id = db.Column(db.String(36), db.ForeignKey('classes.id'), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    
+
+    class_ref = db.relationship('Class', backref='attendance_logs')
+
     def to_dict(self):
         return {
             'id': self.id,
@@ -24,5 +27,7 @@ class AttendanceLog(db.Model):
             'time': self.time.isoformat(),
             'status': self.status,
             'confidence': self.confidence,
+            'class_id': self.class_id,
+            'class_name': self.class_ref.name if self.class_ref else None,
             'created_at': self.created_at.isoformat()
         }

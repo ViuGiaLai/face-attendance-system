@@ -12,6 +12,8 @@ from werkzeug.security import generate_password_hash
 from app.models import db
 from app.models.user import User
 from app.models.attendance import AttendanceLog
+from app.models.class_model import Class
+from app.routes.audit import log_audit
 import numpy as np
 from app.services.face_engine_simple import face_engine
 
@@ -377,11 +379,12 @@ def recognize_face():
                         best_distance = distance
                         best_match = face_engine.known_face_ids[i]
 
+                class_id = data.get('class_id')
                 tolerance = face_engine.tolerance
                 print(f"Descriptor recognition - best distance: {best_distance:.4f}, tolerance: {tolerance}")
                 if best_match and best_distance <= tolerance:
                     confidence = 1 - (best_distance / tolerance)
-                    return _process_recognized_user(best_match, max(0, confidence))
+                    return _process_recognized_user(best_match, max(0, confidence), class_id)
                 else:
                     return jsonify({
                         'recognized': False,
@@ -390,12 +393,13 @@ def recognize_face():
                         'code': 'LOW_CONFIDENCE'
                     }), 200
             else:
+                class_id = data.get('class_id')
                 # Fall back to fake face engine
                 user_id, confidence = face_engine.recognize_face(image_data)
                 print(f"Face recognition result - User ID: {user_id}, Confidence: {confidence}")
 
                 if user_id and confidence > 0.6:
-                    return _process_recognized_user(user_id, confidence)
+                    return _process_recognized_user(user_id, confidence, class_id)
                 else:
                     print(f"No face recognized or low confidence: {confidence}")
                     return jsonify({
@@ -429,7 +433,95 @@ def recognize_face():
             'code': 'INTERNAL_SERVER_ERROR'
         }), 500
 
-def _process_recognized_user(user_id, confidence):
+@face_bp.route('/recognize-multi', methods=['POST'])
+@jwt_required()
+def recognize_multi_faces():
+    try:
+        data = request.get_json()
+        descriptors = data.get('descriptors', [])
+
+        if not descriptors:
+            return jsonify({'results': [], 'error': 'Thiếu dữ liệu descriptors'}), 400
+
+        users_with_faces = User.query.filter(
+            User.face_encodings.isnot(None),
+            User.is_active == True
+        ).all()
+
+        if not users_with_faces:
+            return jsonify({'results': [], 'error': 'Không có dữ liệu khuôn mặt'}), 400
+
+        face_engine.load_face_encodings_from_db(users_with_faces)
+        results = []
+
+        for desc in descriptors:
+            if not isinstance(desc, list) or len(desc) != 128:
+                results.append({'recognized': False, 'error': 'Invalid descriptor'})
+                continue
+
+            unknown = np.array(desc, dtype=np.float32)
+            best_match = None
+            best_distance = float('inf')
+
+            for i, known in enumerate(face_engine.known_face_encodings):
+                known_arr = np.array(known, dtype=np.float32)
+                distance = np.linalg.norm(unknown - known_arr)
+                if distance < best_distance:
+                    best_distance = distance
+                    best_match = face_engine.known_face_ids[i]
+
+            tolerance = face_engine.tolerance
+            if best_match and best_distance <= tolerance:
+                confidence = 1 - (best_distance / tolerance)
+                user = User.query.get(best_match)
+                if user:
+                    results.append({
+                        'recognized': True,
+                        'user': {'id': user.id, 'name': user.name, 'email': user.email, 'role': user.role},
+                        'confidence': max(0, confidence),
+                        'distance': float(best_distance),
+                        'descriptor_used': desc,
+                    })
+                    continue
+
+            results.append({
+                'recognized': False,
+                'confidence': 0.0,
+                'distance': float(best_distance) if best_match else None,
+            })
+
+        # Log attendance for all recognized users
+        class_id = data.get('class_id')
+        if class_id:
+            cls = Class.query.get(class_id)
+            if cls:
+                class_id = cls.id
+
+        today = date.today()
+        now = datetime.utcnow()
+        for result in results:
+            if result['recognized']:
+                user_id = result['user']['id']
+                existing = AttendanceLog.query.filter_by(user_id=user_id, date=today).first()
+                if not existing:
+                    attendance = AttendanceLog(
+                        user_id=user_id,
+                        date=today,
+                        time=now.time(),
+                        status='present',
+                        confidence=result['confidence'],
+                        class_id=class_id,
+                    )
+                    db.session.add(attendance)
+        db.session.commit()
+
+        return jsonify({'results': results}), 200
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+def _process_recognized_user(user_id, confidence, class_id=None):
     """Helper function to process recognized user and log attendance"""
     try:
         user = User.query.get(user_id)
@@ -440,9 +532,13 @@ def _process_recognized_user(user_id, confidence):
                 'code': 'USER_NOT_FOUND'
             }), 404
         
+        if class_id:
+            cls = Class.query.get(class_id)
+            if not cls:
+                class_id = None
+
         print(f"Recognized user {user.name} with confidence {confidence}")
         
-        # Check if already logged today
         today = date.today()
         existing_log = AttendanceLog.query.filter_by(
             user_id=user_id, date=today
@@ -464,7 +560,6 @@ def _process_recognized_user(user_id, confidence):
                 'attendance_id': existing_log.id
             }), 200
         
-        # Log the attendance
         now = datetime.utcnow()
         attendance = AttendanceLog(
             user_id=user.id,
@@ -472,12 +567,15 @@ def _process_recognized_user(user_id, confidence):
             time=now.time(),
             status='present',
             confidence=float(confidence),
+            class_id=class_id,
             created_at=now
         )
         db.session.add(attendance)
         db.session.commit()
         print("Attendance logged successfully")
-        
+        log_audit(user.id, 'attendance', 'attendance_log', attendance.id,
+                  f'Điểm danh qua face recognition - {user.name}', None)
+
         return jsonify({
             'recognized': True,
             'message': f'Điểm danh thành công cho {user.name}!',
@@ -581,4 +679,71 @@ def batch_register_faces():
         db.session.rollback()
         print(f"Error in batch_register_faces: {str(e)}")
         traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+@face_bp.route('/anti-spoof', methods=['POST'])
+@jwt_required()
+def anti_spoof():
+    try:
+        data = request.get_json()
+        if not data or not data.get('image_data'):
+            return jsonify({'error': 'Thiếu dữ liệu ảnh'}), 400
+
+        image_data = data.get('image_data')
+        if ',' in image_data:
+            image_data = base64.b64decode(image_data.split(',')[-1])
+        else:
+            image_data = base64.b64decode(image_data)
+
+        nparr = np.frombuffer(image_data, np.uint8)
+        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        if img is None:
+            return jsonify({'error': 'Không thể giải mã ảnh'}), 400
+
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+
+        # 1. Laplacian variance (blur detection)
+        laplacian_var = cv2.Laplacian(gray, cv2.CV_64F).var()
+
+        # 2. Histogram analysis (check for flat/bimodal distribution)
+        hist = cv2.calcHist([gray], [0], None, [256], [0, 256])
+        hist = hist.flatten()
+        hist_std = float(np.std(hist))
+        hist_mean = float(np.mean(hist))
+
+        # 3. Edge detection (Canny)
+        edges = cv2.Canny(gray, 50, 150)
+        edge_ratio = float(np.count_nonzero(edges) / edges.size)
+
+        # 4. Texture complexity via local binary pattern approximation
+        sobel_x = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=3)
+        sobel_y = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=3)
+        gradient_mag = np.sqrt(sobel_x**2 + sobel_y**2)
+        texture_score = float(np.mean(gradient_mag))
+
+        # Scoring
+        is_real = (
+            laplacian_var > 15 and
+            hist_std > 200 and
+            edge_ratio > 0.01 and
+            texture_score > 5
+        )
+
+        score = min(1.0, max(0.0,
+            0.3 * min(1.0, laplacian_var / 100) +
+            0.25 * min(1.0, hist_std / 500) +
+            0.25 * min(1.0, edge_ratio / 0.05) +
+            0.2 * min(1.0, texture_score / 20)
+        ))
+
+        return jsonify({
+            'isReal': is_real,
+            'score': round(score, 4),
+            'laplacian_var': round(laplacian_var, 2),
+            'hist_std': round(hist_std, 2),
+            'edge_ratio': round(edge_ratio, 6),
+            'texture_score': round(texture_score, 2),
+        }), 200
+
+    except Exception as e:
         return jsonify({'error': str(e)}), 500

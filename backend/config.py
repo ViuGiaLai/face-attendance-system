@@ -6,8 +6,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 class Config:
-    SECRET_KEY = os.environ.get('SECRET_KEY', 'your-secret-key-here')
-    JWT_SECRET_KEY = os.environ.get('JWT_SECRET_KEY', 'jwt-secret-key')
+    SECRET_KEY = os.environ.get('SECRET_KEY', 'f4c3-4tt3nd4nc3-sys-jwt-s3cr3t-k3y-32b')
+    JWT_SECRET_KEY = os.environ.get('JWT_SECRET_KEY', 'f4c3-4tt3nd4nc3-sys-jwt-s3cr3t-k3y-32b')
     JWT_ACCESS_TOKEN_EXPIRES = timedelta(hours=24)
     
     # Database
