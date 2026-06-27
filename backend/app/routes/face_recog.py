@@ -147,22 +147,28 @@ def register_face():
         if str(current_user_id) != str(user_id) and current_user.role not in ['admin', 'teacher']:
             return jsonify({'error': 'Bạn không có quyền đăng ký khuôn mặt cho người khác'}), 403
         
-        # Decode base64 image
-        try:
-            print("Decoding image data...")
-            if ',' in data['image_data']:
-                image_data = base64.b64decode(data['image_data'].split(',')[-1])
-            else:
-                image_data = base64.b64decode(data['image_data'])
-            print(f"Image decoded successfully, size: {len(image_data)} bytes")
-        except Exception as e:
-            error_msg = f'Định dạng ảnh không hợp lệ: {str(e)}'
-            print(error_msg)
-            return jsonify({'error': error_msg}), 400
-        
-        # Get face encoding using face_engine
-        print("Encoding face from image...")
-        face_encoding = face_engine.encode_face_from_image(image_data)
+        # Use pre-computed face descriptor if provided (from face-api.js)
+        face_descriptor = data.get('face_descriptor')
+
+        if face_descriptor and isinstance(face_descriptor, list) and len(face_descriptor) == 128:
+            print("Using pre-computed face descriptor from frontend")
+            face_encoding = face_descriptor
+        else:
+            # Decode base64 image and use fake engine
+            try:
+                print("Decoding image data...")
+                if ',' in data['image_data']:
+                    image_data = base64.b64decode(data['image_data'].split(',')[-1])
+                else:
+                    image_data = base64.b64decode(data['image_data'])
+                print(f"Image decoded successfully, size: {len(image_data)} bytes")
+            except Exception as e:
+                error_msg = f'Định dạng ảnh không hợp lệ: {str(e)}'
+                print(error_msg)
+                return jsonify({'error': error_msg}), 400
+            
+            print("Encoding face from image...")
+            face_encoding = face_engine.encode_face_from_image(image_data)
         
         if face_encoding is None:
             return jsonify({
@@ -260,7 +266,6 @@ def _complete_registration(user, existing_encodings, temp_count):
         # Save to database
         try:
             user.face_encodings = json.dumps(all_encodings)
-            user.face_registered = True
             user.face_registered_at = datetime.utcnow()
             user.updated_at = datetime.utcnow()
             db.session.commit()
@@ -313,35 +318,38 @@ def recognize_face():
         print("Received request to /api/face/recognize")
         data = request.get_json()
         
-        if not data or not data.get('image_data'):
-            print("Error: No image data provided")
+        if not data or not data.get('image_data') and not data.get('face_descriptor'):
+            print("Error: No image data or descriptor provided")
             return jsonify({
                 'recognized': False,
-                'error': 'Thiếu dữ liệu ảnh',
-                'code': 'MISSING_IMAGE_DATA'
+                'error': 'Thiếu dữ liệu ảnh hoặc đặc trưng khuôn mặt',
+                'code': 'MISSING_DATA'
             }), 400
-        
-        try:
-            print("Attempting to decode image data...")
-            # Extract base64 data
-            if ',' in data['image_data']:
-                image_data = base64.b64decode(data['image_data'].split(',')[-1])
-            else:
-                image_data = base64.b64decode(data['image_data'])
-            print(f"Successfully decoded image data. Size: {len(image_data)} bytes")
-        except Exception as e:
-            error_msg = f"Error decoding image data: {str(e)}"
-            print(error_msg)
-            return jsonify({
-                'recognized': False,
-                'error': 'Định dạng ảnh không hợp lệ',
-                'details': error_msg,
-                'code': 'INVALID_IMAGE_FORMAT'
-            }), 400
+
+        # Use pre-computed face descriptor if provided (from face-api.js)
+        face_descriptor = data.get('face_descriptor')
+        use_descriptor = face_descriptor and isinstance(face_descriptor, list) and len(face_descriptor) == 128
+
+        if not use_descriptor:
+            try:
+                print("Attempting to decode image data...")
+                if ',' in data['image_data']:
+                    image_data = base64.b64decode(data['image_data'].split(',')[-1])
+                else:
+                    image_data = base64.b64decode(data['image_data'])
+                print(f"Successfully decoded image data. Size: {len(image_data)} bytes")
+            except Exception as e:
+                error_msg = f"Error decoding image data: {str(e)}"
+                print(error_msg)
+                return jsonify({
+                    'recognized': False,
+                    'error': 'Định dạng ảnh không hợp lệ',
+                    'details': error_msg,
+                    'code': 'INVALID_IMAGE_FORMAT'
+                }), 400
         
         try:
             print("Attempting face recognition...")
-            # Ensure face encodings are loaded
             users_with_faces = User.query.filter(
                 User.face_encodings.isnot(None),
                 User.is_active == True
@@ -355,21 +363,48 @@ def recognize_face():
                 }), 400
                 
             face_engine.load_face_encodings_from_db(users_with_faces)
-            
-            # Recognize face
-            user_id, confidence = face_engine.recognize_face(image_data)
-            print(f"Face recognition result - User ID: {user_id}, Confidence: {confidence}")
-            
-            if user_id and confidence > 0.6:  # Confidence threshold
-                return _process_recognized_user(user_id, confidence)
+
+            if use_descriptor:
+                # Compare with stored encodings directly
+                import numpy as np
+                unknown = np.array(face_descriptor, dtype=np.float32)
+                best_match = None
+                best_distance = float('inf')
+
+                for i, known in enumerate(face_engine.known_face_encodings):
+                    known = np.array(known, dtype=np.float32)
+                    distance = np.linalg.norm(unknown - known)
+                    if distance < best_distance:
+                        best_distance = distance
+                        best_match = face_engine.known_face_ids[i]
+
+                tolerance = 0.6
+                print(f"Descriptor recognition - best distance: {best_distance:.4f}, tolerance: {tolerance}")
+                if best_match and best_distance <= tolerance:
+                    confidence = 1 - (best_distance / tolerance)
+                    return _process_recognized_user(best_match, confidence)
+                else:
+                    return jsonify({
+                        'recognized': False,
+                        'message': 'Không nhận diện được khuôn mặt',
+                        'confidence': 0.0,
+                        'code': 'LOW_CONFIDENCE'
+                    }), 200
             else:
-                print(f"No face recognized or low confidence: {confidence}")
-                return jsonify({
-                    'recognized': False,
-                    'message': 'Không nhận diện được khuôn mặt hoặc độ tin cậy thấp',
-                    'confidence': float(confidence) if confidence else 0.0,
-                    'code': 'LOW_CONFIDENCE' if confidence else 'NO_FACE_DETECTED'
-                }), 200
+                # Fall back to fake face engine
+                user_id, confidence = face_engine.recognize_face(image_data)
+                print(f"Face recognition result - User ID: {user_id}, Confidence: {confidence}")
+
+                if user_id and confidence > 0.6:
+                    return _process_recognized_user(user_id, confidence)
+                else:
+                    print(f"No face recognized or low confidence: {confidence}")
+                    return jsonify({
+                        'recognized': False,
+                        'message': 'Không nhận diện được khuôn mặt hoặc độ tin cậy thấp',
+                        'confidence': float(confidence) if confidence else 0.0,
+                        'code': 'LOW_CONFIDENCE' if confidence else 'NO_FACE_DETECTED'
+                    }), 200
                 
         except Exception as e:
             error_msg = f"Error in face recognition: {str(e)}"
@@ -479,6 +514,7 @@ def batch_register_faces():
         
         user_id = data.get('user_id')
         images = data.get('images', [])
+        descriptors = data.get('descriptors', [])
         
         if not user_id or not images:
             return jsonify({'error': 'Thiếu user_id hoặc danh sách ảnh'}), 400
@@ -490,14 +526,21 @@ def batch_register_faces():
         all_encodings = []
         successful_images = 0
         
-        for image_data in images:
-            face_encoding = face_engine.encode_face_from_image(image_data)
-            if face_encoding is not None:
-                # Convert numpy array to list for storage
-                if hasattr(face_encoding, 'tolist'):
-                    face_encoding = face_encoding.tolist()
-                all_encodings.append(face_encoding)
-                successful_images += 1
+        # Use pre-computed descriptors if available (from face-api.js)
+        if descriptors:
+            for desc in descriptors:
+                if isinstance(desc, list) and len(desc) == 128:
+                    all_encodings.append(desc)
+                    successful_images += 1
+        else:
+            # Fall back to fake engine
+            for image_data in images:
+                face_encoding = face_engine.encode_face_from_image(image_data)
+                if face_encoding is not None:
+                    if hasattr(face_encoding, 'tolist'):
+                        face_encoding = face_encoding.tolist()
+                    all_encodings.append(face_encoding)
+                    successful_images += 1
         
         if successful_images == 0:
             return jsonify({'error': 'Không thể trích xuất khuôn mặt từ bất kỳ ảnh nào'}), 400
@@ -505,7 +548,6 @@ def batch_register_faces():
         # Save all encodings to database
         try:
             user.face_encodings = json.dumps(all_encodings)
-            user.face_registered = True
             user.face_registered_at = datetime.utcnow()
             user.updated_at = datetime.utcnow()
             db.session.commit()
