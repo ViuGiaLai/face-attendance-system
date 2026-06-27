@@ -1,6 +1,7 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import Webcam from 'react-webcam';
 import * as faceapi from 'face-api.js';
+import { useFaceModels } from '../context/FaceModelContext';
 import {
   FiCamera,
   FiUpload,
@@ -13,10 +14,9 @@ import {
   FiImage,
   FiSave,
   FiPlay,
-  FiSquare
+  FiSquare,
+  FiVolume2
 } from 'react-icons/fi';
-
-const MODEL_URL = '/models';
 
 const WebcamCapture = ({
   onCapture,
@@ -36,25 +36,12 @@ const WebcamCapture = ({
   const [isCameraActive, setIsCameraActive] = useState(true);
   const [capturedImages, setCapturedImages] = useState([]);
   const [isAutoCapturing, setIsAutoCapturing] = useState(false);
-  const [modelsLoaded, setModelsLoaded] = useState(false);
+  const [countdown, setCountdown] = useState(null);
+  const { modelsLoaded } = useFaceModels();
   const [hasFace, setHasFace] = useState(false);
   const autoCaptureRef = useRef(null);
+  const countdownRef = useRef(null);
   const detectionIntervalRef = useRef(null);
-
-  useEffect(() => {
-    const loadModels = async () => {
-      try {
-        await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
-        await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
-        await faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
-        setModelsLoaded(true);
-      } catch (err) {
-        console.error('Error loading face-api models:', err);
-        setError('Không thể tải mô hình nhận diện. Trang sẽ hoạt động ở chế độ cơ bản.');
-      }
-    };
-    loadModels();
-  }, []);
 
   useEffect(() => {
     if (!modelsLoaded || !isCameraActive || !webcamRef.current?.video) return;
@@ -281,24 +268,56 @@ const WebcamCapture = ({
     }
   }, [captureStatus]);
 
+  const playBeep = useCallback(() => {
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.frequency.value = 880;
+      osc.type = 'sine';
+      gain.gain.value = 0.15;
+      osc.start();
+      osc.stop(ctx.currentTime + 0.12);
+    } catch (_) {}
+  }, []);
+
   useEffect(() => {
-    if (isAutoCapturing && isCameraActive && !isCapturing && hasFace) {
-      autoCaptureRef.current = setInterval(() => {
-        captureImage();
-      }, 3000);
-    } else {
-      if (autoCaptureRef.current) {
-        clearInterval(autoCaptureRef.current);
-        autoCaptureRef.current = null;
-      }
+    if (!isAutoCapturing || !isCameraActive || !hasFace) {
+      if (countdownRef.current) { clearInterval(countdownRef.current); countdownRef.current = null; }
+      setCountdown(null);
+      return;
     }
-    return () => {
-      if (autoCaptureRef.current) {
-        clearInterval(autoCaptureRef.current);
-        autoCaptureRef.current = null;
-      }
+
+    const startCycle = () => {
+      if (isCapturing) return;
+      setCountdown(3);
+      const interval = 1000;
+      countdownRef.current = setInterval(() => {
+        setCountdown(prev => {
+          if (prev === null || prev <= 1) {
+            clearInterval(countdownRef.current);
+            countdownRef.current = null;
+            captureImage();
+            playBeep();
+            setTimeout(() => setCountdown(null), 500);
+            return null;
+          }
+          return prev - 1;
+        });
+      }, interval);
     };
-  }, [isAutoCapturing, isCameraActive, isCapturing, captureImage, hasFace]);
+
+    startCycle();
+    const loopRef = setInterval(startCycle, 4000);
+
+    return () => {
+      if (countdownRef.current) { clearInterval(countdownRef.current); countdownRef.current = null; }
+      clearInterval(loopRef);
+      setCountdown(null);
+    };
+  }, [isAutoCapturing, isCameraActive, hasFace, captureImage, playBeep]);
 
   const toggleAutoCapture = useCallback(() => {
     if (isAutoCapturing) {
@@ -406,6 +425,28 @@ const WebcamCapture = ({
               }}
             />
 
+            {countdown !== null && (
+              <div style={{
+                position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                background: 'rgba(0,0,0,0.35)',
+                borderRadius: 15,
+                zIndex: 10,
+              }}>
+                <div style={{
+                  width: 100, height: 100,
+                  borderRadius: '50%',
+                  background: 'rgba(255,255,255,0.9)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  boxShadow: '0 8px 30px rgba(0,0,0,0.2)',
+                }}>
+                  <span style={{ fontSize: 48, fontWeight: 800, color: '#1f2937' }}>
+                    {countdown}
+                  </span>
+                </div>
+              </div>
+            )}
+
             <div style={{
               position: 'absolute', bottom: 20,
               left: '50%', transform: 'translateX(-50%)',
@@ -422,7 +463,13 @@ const WebcamCapture = ({
                 animation: 'pulse 2s infinite',
               }}></div>
               <span style={{ fontSize: 14, fontWeight: 500, color: '#1f2937' }}>
-                {isAutoCapturing ? 'Đang tự động chụp...' : hasFace ? 'Đã phát hiện khuôn mặt' : 'Đang tìm khuôn mặt...'}
+                {countdown !== null
+                  ? `Chụp sau ${countdown}s...`
+                  : isAutoCapturing
+                    ? 'Đang tự động chụp...'
+                    : hasFace
+                      ? 'Đã phát hiện khuôn mặt'
+                      : 'Đang tìm khuôn mặt...'}
               </span>
             </div>
           </div>

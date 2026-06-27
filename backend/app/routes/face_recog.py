@@ -12,6 +12,7 @@ from werkzeug.security import generate_password_hash
 from app.models import db
 from app.models.user import User
 from app.models.attendance import AttendanceLog
+import numpy as np
 from app.services.face_engine_simple import face_engine
 
 # Rate limiting storage
@@ -365,8 +366,6 @@ def recognize_face():
             face_engine.load_face_encodings_from_db(users_with_faces)
 
             if use_descriptor:
-                # Compare with stored encodings directly
-                import numpy as np
                 unknown = np.array(face_descriptor, dtype=np.float32)
                 best_match = None
                 best_distance = float('inf')
@@ -378,11 +377,11 @@ def recognize_face():
                         best_distance = distance
                         best_match = face_engine.known_face_ids[i]
 
-                tolerance = 0.6
+                tolerance = face_engine.tolerance
                 print(f"Descriptor recognition - best distance: {best_distance:.4f}, tolerance: {tolerance}")
                 if best_match and best_distance <= tolerance:
                     confidence = 1 - (best_distance / tolerance)
-                    return _process_recognized_user(best_match, confidence)
+                    return _process_recognized_user(best_match, max(0, confidence))
                 else:
                     return jsonify({
                         'recognized': False,

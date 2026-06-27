@@ -6,7 +6,8 @@ import {
   FiCheckCircle,
   FiXCircle,
   FiUser,
-  FiUserPlus
+  FiUserPlus,
+  FiLoader
 } from 'react-icons/fi';
 
 const Attendance = () => {
@@ -16,7 +17,6 @@ const Attendance = () => {
   const [selectedUser, setSelectedUser] = useState('');
   const [mode, setMode] = useState('recognize');
   const [currentStep, setCurrentStep] = useState(0);
-  const [capturedImages, setCapturedImages] = useState([]);
   const [loading, setLoading] = useState(false);
 
   const steps = [
@@ -134,7 +134,6 @@ const Attendance = () => {
       });
 
       setCurrentStep(0);
-      setCapturedImages([]);
       fetchUsers();
 
     } catch (error) {
@@ -150,11 +149,27 @@ const Attendance = () => {
 
   const resetRegistration = () => {
     setCurrentStep(0);
-    setCapturedImages([]);
     setRecognitionResult(null);
   };
 
   return (
+    <>
+      {loading && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(0,0,0,0.4)', zIndex: 999,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          backdropFilter: 'blur(2px)',
+        }}>
+          <div style={{
+            background: 'white', borderRadius: 20, padding: 40,
+            textAlign: 'center', boxShadow: '0 20px 60px rgba(0,0,0,0.2)',
+          }}>
+            <FiLoader style={{ fontSize: 40, color: '#667eea', animation: 'spin 1s linear infinite', marginBottom: 16 }} />
+            <p style={{ fontSize: 16, fontWeight: 600, color: '#374151' }}>Đang xử lý...</p>
+          </div>
+        </div>
+      )}
     <div style={{ maxWidth: 1200, margin: '0 auto', padding: '2rem 1rem' }}>
       <h1 style={{
         textAlign: 'center', marginBottom: 32,

@@ -1,6 +1,7 @@
 import React, { Suspense } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { FaceModelProvider } from './context/FaceModelContext';
 
 // Lazy load components for better performance
 const Navbar = React.lazy(() => import('./components/Navbar'));
@@ -12,7 +13,11 @@ const AttendanceHistory = React.lazy(() => import('./pages/AttendanceHistory'));
 const UserManagement = React.lazy(() => import('./pages/UserManagement'));
 
 // Loading component
-const Loading = () => <div className="flex items-center justify-center min-h-screen">Loading...</div>;
+const Loading = () => (
+  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', color: '#6b7280', fontSize: 16 }}>
+    Đang tải...
+  </div>
+);
 
 const ProtectedRoute = ({ children }) => {
   const { user, loading } = useAuth();
@@ -35,7 +40,7 @@ const AppContent = () => {
     <>
       <Suspense fallback={<Loading />}>
         {user && <Navbar />}
-        <div className="app-content p-4">
+        <div className="app-content">
           <Routes>
         <Route path="/login" element={
           user ? <Navigate to="/" /> : <Login />
@@ -77,7 +82,9 @@ const AppContent = () => {
 function App() {
   return (
     <AuthProvider>
-      <AppContent />
+      <FaceModelProvider>
+        <AppContent />
+      </FaceModelProvider>
     </AuthProvider>
   );
 }
