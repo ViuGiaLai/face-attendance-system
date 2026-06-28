@@ -22,7 +22,7 @@ class User(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    attendance_logs = db.relationship('AttendanceLog', backref='user', lazy=True)
+    attendance_logs = db.relationship('AttendanceLog', backref='user', cascade='all, delete-orphan', lazy=True)
 
     def to_dict(self):
         return {

@@ -17,7 +17,7 @@ class Class(db.Model):
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     teacher = db.relationship('User', backref='classes_teaching', foreign_keys=[teacher_id])
-    students = db.relationship('ClassStudent', backref='class_ref', lazy='dynamic')
+    students = db.relationship('ClassStudent', backref='class_ref', cascade='all, delete-orphan', lazy='dynamic')
 
     def to_dict(self):
         teacher_name = self.teacher.name if self.teacher else None
@@ -75,8 +75,8 @@ class Schedule(db.Model):
     room = db.Column(db.String(100))
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
-    class_ref = db.relationship('Class', backref='schedules', foreign_keys=[class_id])
-    subject = db.relationship('Subject', backref='schedules')
+    class_ref = db.relationship('Class', backref=db.backref('schedules', cascade='all, delete-orphan'), foreign_keys=[class_id])
+    subject = db.relationship('Subject', backref=db.backref('schedules', cascade='all, delete-orphan'))
 
     def to_dict(self):
         days = ['Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7', 'Chủ nhật']
@@ -104,7 +104,7 @@ class ClassStudent(db.Model):
     user_id = db.Column(db.String(36), db.ForeignKey('users.id'), nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
-    student = db.relationship('User', backref='class_enrollments', foreign_keys=[user_id])
+    student = db.relationship('User', backref=db.backref('class_enrollments', cascade='all, delete-orphan'), foreign_keys=[user_id])
 
     def to_dict(self):
         return {

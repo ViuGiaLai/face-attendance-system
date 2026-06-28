@@ -8,10 +8,10 @@ def add_face_image_column():
         # Check if the column already exists
         inspector = db.inspect(db.engine)
         columns = [column['name'] for column in inspector.get_columns('users')]
-        
         if 'face_image' not in columns:
-            # Add the new column
-            db.engine.execute('ALTER TABLE users ADD COLUMN face_image BYTEA')
+            from sqlalchemy import text
+            with db.engine.begin() as conn:
+                conn.execute(text('ALTER TABLE users ADD COLUMN face_image BYTEA'))
             print("Successfully added face_image column to users table")
         else:
             print("face_image column already exists in users table")

@@ -3,6 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import { usersAPI, faceAPI } from '../services/api';
 import WebcamCapture from '../components/WebcamCapture';
+import { selectBestImages } from '../utils/imageScorer';
 import {
   FiUser, FiShield, FiCamera, FiEdit2, FiSave, FiX,
   FiCheckCircle, FiXCircle, FiRefreshCw, FiTrash2, FiUsers,
@@ -66,15 +67,24 @@ const UserManagement = () => {
     }
   };
 
-  const handleFaceRegistration = async (imageData) => {
+  const handleFaceRegistrationBatch = async (capturedImages) => {
     if (!editingUser) return;
     try {
-      await faceAPI.register({ image_data: imageData, user_id: editingUser.id });
+      setLoading(true);
+      const bestImages = capturedImages.length > 5 ? await selectBestImages(capturedImages, 5) : capturedImages;
+      await faceAPI.batchRegister({
+        user_id: editingUser.id,
+        images: bestImages.map(img => img.src),
+        descriptors: bestImages.filter(img => img.descriptor).map(img => img.descriptor),
+      });
       setShowFaceRegistration(false);
+      setEditingUser(null);
       fetchUsers();
       alert('Đăng ký khuôn mặt thành công!');
     } catch (error) {
       alert(error.response?.data?.error || 'Có lỗi xảy ra khi đăng ký khuôn mặt');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -171,7 +181,7 @@ const UserManagement = () => {
             </button>
           </div>
           {showFaceRegistration ? (
-            <WebcamCapture onCapture={handleFaceRegistration} mode="register" />
+            <WebcamCapture onRegister={handleFaceRegistrationBatch} mode="register" />
           ) : (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: 14 }}>
               <div>

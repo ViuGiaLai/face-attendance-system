@@ -332,7 +332,7 @@ const WebcamCapture = ({
       setImgSrc(imageSrc);
 
       // Spoof detection
-      const spoof = detectScreenSpoof(imageSrc);
+      const spoof = await detectScreenSpoof(imageSrc);
       setSpoofScore(spoof.score);
       setSpoofChecked(true);
       if (!spoof.isReal && !skipLivenessCheck) {

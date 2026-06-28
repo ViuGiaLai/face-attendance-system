@@ -1,7 +1,5 @@
 import csv
 import io
-import csv
-import io
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from app.models import db
@@ -10,6 +8,7 @@ from app.models.user import User
 from app.models.class_model import Class, Schedule
 from datetime import datetime, date, timedelta
 from sqlalchemy import and_, func
+from app.timezone_utils import get_vn_now, get_vn_today, get_vn_time
 
 attendance_bp = Blueprint('attendance', __name__)
 
@@ -29,7 +28,7 @@ def log_attendance():
         if not user:
             return jsonify({'error': 'User not found'}), 404
 
-        today = date.today()
+        today = get_vn_today()
         existing_log = AttendanceLog.query.filter_by(user_id=user_id, date=today).first()
         if existing_log:
             return jsonify({'error': 'Attendance already logged for today'}), 400
@@ -39,11 +38,11 @@ def log_attendance():
             if not cls:
                 return jsonify({'error': 'Class not found'}), 404
 
-        now = datetime.now()
+        now = get_vn_now()
         attendance = AttendanceLog(
             user_id=user_id,
             date=today,
-            time=now.time(),
+            time=get_vn_time(),
             status=status,
             confidence=data.get('confidence'),
             class_id=class_id
@@ -95,7 +94,7 @@ def get_attendance_history():
 @jwt_required()
 def get_today_attendance():
     try:
-        today = date.today()
+        today = get_vn_today()
         class_id = request.args.get('class_id')
 
         query = AttendanceLog.query.filter_by(date=today)
@@ -121,7 +120,7 @@ def get_attendance_stats():
         days = int(request.args.get('days', 30))
         class_id = request.args.get('class_id')
 
-        end_date = date.today()
+        end_date = get_vn_today()
         start_date = end_date - timedelta(days=days)
 
         query = AttendanceLog.query.filter(
@@ -162,7 +161,7 @@ def get_attendance_stats():
 @jwt_required()
 def get_today_schedule():
     try:
-        today = date.today()
+        today = get_vn_today()
         day_of_week = today.weekday()
 
         schedules = Schedule.query.filter_by(day_of_week=day_of_week).order_by(Schedule.start_time).all()
@@ -220,7 +219,7 @@ def get_class_stats():
         from app.models.class_model import ClassStudent
         total_students = ClassStudent.query.filter_by(class_id=class_id).count()
 
-        end_date = date.today()
+        end_date = get_vn_today()
         start_date = end_date - timedelta(days=days)
 
         logs = AttendanceLog.query.filter(
@@ -252,7 +251,7 @@ def get_weekly_stats():
     try:
         user_id = request.args.get('user_id')
         class_id = request.args.get('class_id')
-        today_dt = date.today()
+        today_dt = get_vn_today()
         week_dates = [(today_dt - timedelta(days=i)) for i in range(6, -1, -1)]
 
         result = []
@@ -333,7 +332,7 @@ def export_attendance_csv():
             csv_bytes,
             mimetype='text/csv; charset=utf-8',
             headers={
-                'Content-Disposition': f'attachment; filename=attendance_{date.today().isoformat()}.csv',
+                'Content-Disposition': f'attachment; filename=attendance_{get_vn_today().isoformat()}.csv',
                 'Content-Type': 'text/csv; charset=utf-8'
             }
         ), 200

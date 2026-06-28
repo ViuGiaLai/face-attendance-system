@@ -15,7 +15,8 @@ from app.models.attendance import AttendanceLog
 from app.models.class_model import Class
 from app.routes.audit import log_audit
 import numpy as np
-from app.services.face_engine_simple import face_engine
+from app.services.face_engine import face_engine
+from app.timezone_utils import get_vn_now, get_vn_today, get_vn_time
 
 # Rate limiting storage
 registration_attempts = {}
@@ -37,28 +38,40 @@ face_bp = Blueprint('face', __name__)
 def rate_limit_register(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        user_id = get_jwt_identity()
+        # Determine the target user id from payload if possible
+        target_user_id = None
+        try:
+            data = request.get_json(silent=True)
+            if data and data.get('user_id'):
+                target_user_id = data.get('user_id')
+        except Exception:
+            pass
+            
+        if not target_user_id:
+            target_user_id = get_jwt_identity()
+            
         current_time = time.time()
         
         # Clean up old entries
-        registration_attempts[user_id] = [t for t in registration_attempts.get(user_id, []) 
+        registration_attempts[target_user_id] = [t for t in registration_attempts.get(target_user_id, []) 
                                         if current_time - t < 60]  # 1 minute window
         
-        # Check rate limit (max 5 attempts per minute)
-        if len(registration_attempts.get(user_id, [])) >= 5:
+        # Check rate limit (max 15 attempts per minute to allow 5 successful frames + retries)
+        if len(registration_attempts.get(target_user_id, [])) >= 15:
             return jsonify({
-                'error': 'Quá nhiều yêu cầu. Vui lòng thử lại sau 1 phút.'
+                'error': 'Quá nhiều yêu cầu đăng ký cho tài khoản này. Vui lòng thử lại sau 1 phút.'
             }), 429
             
         # Record this attempt
-        if user_id not in registration_attempts:
-            registration_attempts[user_id] = []
-        registration_attempts[user_id].append(current_time)
+        if target_user_id not in registration_attempts:
+            registration_attempts[target_user_id] = []
+        registration_attempts[target_user_id].append(current_time)
         
         return f(*args, **kwargs)
     return decorated_function
 
 @face_bp.route('/register-status/<string:user_id>', methods=['GET'])
+@face_bp.route('/register/status/<string:user_id>', methods=['GET'])
 @jwt_required()
 def get_face_registration_status(user_id):
     """Get the current face registration status for a user"""
@@ -150,28 +163,28 @@ def register_face():
         if str(current_user_id) != str(user_id) and current_user.role not in ['admin', 'teacher']:
             return jsonify({'error': 'Bạn không có quyền đăng ký khuôn mặt cho người khác'}), 403
         
-        # Use pre-computed face descriptor if provided (from face-api.js)
-        face_descriptor = data.get('face_descriptor')
+        face_encoding = None
 
-        if face_descriptor and isinstance(face_descriptor, list) and len(face_descriptor) == 128:
-            print("Using pre-computed face descriptor from frontend")
-            face_encoding = face_descriptor
-        else:
-            # Decode base64 image and use fake engine
+        # Prioritize backend Dlib face recognition if image_data is sent
+        if data.get('image_data'):
             try:
-                print("Decoding image data...")
+                print("Decoding image data for Dlib extraction...")
                 if ',' in data['image_data']:
-                    image_data = base64.b64decode(data['image_data'].split(',')[-1])
+                    image_bytes = base64.b64decode(data['image_data'].split(',')[-1])
                 else:
-                    image_data = base64.b64decode(data['image_data'])
-                print(f"Image decoded successfully, size: {len(image_data)} bytes")
+                    image_bytes = base64.b64decode(data['image_data'])
+                
+                print("Encoding face from image using Dlib...")
+                face_encoding = face_engine.encode_face_from_image(image_bytes)
             except Exception as e:
-                error_msg = f'Định dạng ảnh không hợp lệ: {str(e)}'
-                print(error_msg)
-                return jsonify({'error': error_msg}), 400
-            
-            print("Encoding face from image...")
-            face_encoding = face_engine.encode_face_from_image(image_data)
+                print(f"Error extracting face encoding using Dlib: {str(e)}")
+
+        # Fallback to frontend-computed descriptor if Dlib extraction failed or no image was sent
+        if face_encoding is None:
+            face_descriptor = data.get('face_descriptor')
+            if face_descriptor and isinstance(face_descriptor, list) and len(face_descriptor) == 128:
+                print("Falling back to pre-computed face descriptor from frontend")
+                face_encoding = face_descriptor
         
         if face_encoding is None:
             return jsonify({
@@ -367,7 +380,25 @@ def recognize_face():
                 
             face_engine.load_face_encodings_from_db(users_with_faces)
 
-            if use_descriptor:
+            class_id = data.get('class_id')
+            user_id = None
+            confidence = 0.0
+
+            # Prioritize Dlib recognition from image_data
+            if 'image_data' in data:
+                try:
+                    print("Attempting Dlib recognition on image_data...")
+                    if ',' in data['image_data']:
+                        image_bytes = base64.b64decode(data['image_data'].split(',')[-1])
+                    else:
+                        image_bytes = base64.b64decode(data['image_data'])
+                    user_id, confidence = face_engine.recognize_face(image_bytes)
+                except Exception as e:
+                    print(f"Dlib recognition failed: {e}")
+
+            # Fallback to descriptor comparison if Dlib recognition failed or image_data not processed
+            if not user_id and use_descriptor:
+                print("Falling back to descriptor-based recognition...")
                 unknown = np.array(face_descriptor, dtype=np.float32)
                 best_match = None
                 best_distance = float('inf')
@@ -379,35 +410,24 @@ def recognize_face():
                         best_distance = distance
                         best_match = face_engine.known_face_ids[i]
 
-                class_id = data.get('class_id')
                 tolerance = face_engine.tolerance
                 print(f"Descriptor recognition - best distance: {best_distance:.4f}, tolerance: {tolerance}")
                 if best_match and best_distance <= tolerance:
+                    user_id = best_match
                     confidence = 1 - (best_distance / tolerance)
-                    return _process_recognized_user(best_match, max(0, confidence), class_id)
-                else:
-                    return jsonify({
-                        'recognized': False,
-                        'message': 'Không nhận diện được khuôn mặt',
-                        'confidence': 0.0,
-                        'code': 'LOW_CONFIDENCE'
-                    }), 200
-            else:
-                class_id = data.get('class_id')
-                # Fall back to fake face engine
-                user_id, confidence = face_engine.recognize_face(image_data)
-                print(f"Face recognition result - User ID: {user_id}, Confidence: {confidence}")
 
-                if user_id and confidence > 0.6:
-                    return _process_recognized_user(user_id, confidence, class_id)
-                else:
-                    print(f"No face recognized or low confidence: {confidence}")
-                    return jsonify({
-                        'recognized': False,
-                        'message': 'Không nhận diện được khuôn mặt hoặc độ tin cậy thấp',
-                        'confidence': float(confidence) if confidence else 0.0,
-                        'code': 'LOW_CONFIDENCE' if confidence else 'NO_FACE_DETECTED'
-                    }), 200
+            print(f"Face recognition result - User ID: {user_id}, Confidence: {confidence}")
+
+            if user_id and confidence > 0.6:
+                return _process_recognized_user(user_id, confidence, class_id)
+            else:
+                print(f"No face recognized or low confidence: {confidence}")
+                return jsonify({
+                    'recognized': False,
+                    'message': 'Không nhận diện được khuôn mặt hoặc độ tin cậy thấp',
+                    'confidence': float(confidence) if confidence else 0.0,
+                    'code': 'LOW_CONFIDENCE' if confidence else 'NO_FACE_DETECTED'
+                }), 200
                 
         except Exception as e:
             error_msg = f"Error in face recognition: {str(e)}"
@@ -439,9 +459,10 @@ def recognize_multi_faces():
     try:
         data = request.get_json()
         descriptors = data.get('descriptors', [])
+        image_data = data.get('image_data')
 
-        if not descriptors:
-            return jsonify({'results': [], 'error': 'Thiếu dữ liệu descriptors'}), 400
+        if not descriptors and not image_data:
+            return jsonify({'results': [], 'error': 'Thiếu dữ liệu descriptors hoặc ảnh'}), 400
 
         users_with_faces = User.query.filter(
             User.face_encodings.isnot(None),
@@ -454,41 +475,77 @@ def recognize_multi_faces():
         face_engine.load_face_encodings_from_db(users_with_faces)
         results = []
 
-        for desc in descriptors:
-            if not isinstance(desc, list) or len(desc) != 128:
-                results.append({'recognized': False, 'error': 'Invalid descriptor'})
-                continue
+        # Prioritize Dlib multi-face recognition if image_data is provided
+        dlib_success = False
+        if image_data:
+            try:
+                print("Attempting Dlib multi-face recognition...")
+                if ',' in image_data:
+                    image_bytes = base64.b64decode(image_data.split(',')[-1])
+                else:
+                    image_bytes = base64.b64decode(image_data)
+                
+                dlib_results = face_engine.recognize_multiple_faces(image_bytes)
+                if dlib_results:
+                    for res in dlib_results:
+                        if res['recognized']:
+                            user = User.query.get(res['user_id'])
+                            if user:
+                                results.append({
+                                    'recognized': True,
+                                    'user': {'id': user.id, 'name': user.name, 'email': user.email, 'role': user.role},
+                                    'confidence': res['confidence'],
+                                    'distance': res['distance']
+                                })
+                        else:
+                            results.append({
+                                'recognized': False,
+                                'confidence': 0.0,
+                                'distance': res['distance']
+                            })
+                    dlib_success = True
+                    print(f"Dlib multi-face recognition processed {len(results)} faces")
+            except Exception as e:
+                print(f"Dlib multi-face recognition failed: {e}")
 
-            unknown = np.array(desc, dtype=np.float32)
-            best_match = None
-            best_distance = float('inf')
-
-            for i, known in enumerate(face_engine.known_face_encodings):
-                known_arr = np.array(known, dtype=np.float32)
-                distance = np.linalg.norm(unknown - known_arr)
-                if distance < best_distance:
-                    best_distance = distance
-                    best_match = face_engine.known_face_ids[i]
-
-            tolerance = face_engine.tolerance
-            if best_match and best_distance <= tolerance:
-                confidence = 1 - (best_distance / tolerance)
-                user = User.query.get(best_match)
-                if user:
-                    results.append({
-                        'recognized': True,
-                        'user': {'id': user.id, 'name': user.name, 'email': user.email, 'role': user.role},
-                        'confidence': max(0, confidence),
-                        'distance': float(best_distance),
-                        'descriptor_used': desc,
-                    })
+        # Fallback to descriptor-based recognition if Dlib failed or no image was processed
+        if not dlib_success and descriptors:
+            print("Falling back to descriptor-based multi-face recognition...")
+            for desc in descriptors:
+                if not isinstance(desc, list) or len(desc) != 128:
+                    results.append({'recognized': False, 'error': 'Invalid descriptor'})
                     continue
 
-            results.append({
-                'recognized': False,
-                'confidence': 0.0,
-                'distance': float(best_distance) if best_match else None,
-            })
+                unknown = np.array(desc, dtype=np.float32)
+                best_match = None
+                best_distance = float('inf')
+
+                for i, known in enumerate(face_engine.known_face_encodings):
+                    known_arr = np.array(known, dtype=np.float32)
+                    distance = np.linalg.norm(unknown - known_arr)
+                    if distance < best_distance:
+                        best_distance = distance
+                        best_match = face_engine.known_face_ids[i]
+
+                tolerance = face_engine.tolerance
+                if best_match and best_distance <= tolerance:
+                    confidence = 1 - (best_distance / tolerance)
+                    user = User.query.get(best_match)
+                    if user:
+                        results.append({
+                            'recognized': True,
+                            'user': {'id': user.id, 'name': user.name, 'email': user.email, 'role': user.role},
+                            'confidence': max(0, confidence),
+                            'distance': float(best_distance),
+                            'descriptor_used': desc,
+                        })
+                        continue
+
+                results.append({
+                    'recognized': False,
+                    'confidence': 0.0,
+                    'distance': float(best_distance) if best_match else None,
+                })
 
         # Log attendance for all recognized users
         class_id = data.get('class_id')
@@ -497,8 +554,8 @@ def recognize_multi_faces():
             if cls:
                 class_id = cls.id
 
-        today = date.today()
-        now = datetime.utcnow()
+        today = get_vn_today()
+        now = get_vn_now()
         for result in results:
             if result['recognized']:
                 user_id = result['user']['id']
@@ -507,7 +564,7 @@ def recognize_multi_faces():
                     attendance = AttendanceLog(
                         user_id=user_id,
                         date=today,
-                        time=now.time(),
+                        time=get_vn_time(),
                         status='present',
                         confidence=result['confidence'],
                         class_id=class_id,
@@ -539,7 +596,7 @@ def _process_recognized_user(user_id, confidence, class_id=None):
 
         print(f"Recognized user {user.name} with confidence {confidence}")
         
-        today = date.today()
+        today = get_vn_today()
         existing_log = AttendanceLog.query.filter_by(
             user_id=user_id, date=today
         ).first()
@@ -560,11 +617,11 @@ def _process_recognized_user(user_id, confidence, class_id=None):
                 'attendance_id': existing_log.id
             }), 200
         
-        now = datetime.utcnow()
+        now = get_vn_now()
         attendance = AttendanceLog(
             user_id=user.id,
             date=today,
-            time=now.time(),
+            time=get_vn_time(),
             status='present',
             confidence=float(confidence),
             class_id=class_id,
@@ -623,20 +680,29 @@ def batch_register_faces():
         all_encodings = []
         successful_images = 0
         
-        # Use pre-computed descriptors if available (from face-api.js)
-        if descriptors:
+        # Prioritize Dlib extraction from images
+        if images:
+            for image_data in images:
+                try:
+                    if ',' in image_data:
+                        decoded_img = base64.b64decode(image_data.split(',')[-1])
+                    else:
+                        decoded_img = base64.b64decode(image_data)
+                    face_encoding = face_engine.encode_face_from_image(decoded_img)
+                    if face_encoding is not None:
+                        if hasattr(face_encoding, 'tolist'):
+                            face_encoding = face_encoding.tolist()
+                        all_encodings.append(face_encoding)
+                        successful_images += 1
+                except Exception as e:
+                    print(f"Error in batch image extraction: {e}")
+
+        # Fallback to pre-computed descriptors if Dlib extraction failed for all images
+        if successful_images == 0 and descriptors:
+            print("Falling back to frontend pre-computed descriptors for batch registration")
             for desc in descriptors:
                 if isinstance(desc, list) and len(desc) == 128:
                     all_encodings.append(desc)
-                    successful_images += 1
-        else:
-            # Fall back to fake engine
-            for image_data in images:
-                face_encoding = face_engine.encode_face_from_image(image_data)
-                if face_encoding is not None:
-                    if hasattr(face_encoding, 'tolist'):
-                        face_encoding = face_encoding.tolist()
-                    all_encodings.append(face_encoding)
                     successful_images += 1
         
         if successful_images == 0:
@@ -658,6 +724,7 @@ def batch_register_faces():
         
         # Reload face encodings
         try:
+            face_engine.clear_temp_encodings(user_id)
             users_with_faces = User.query.filter(
                 User.face_encodings.isnot(None),
                 User.is_active == True
