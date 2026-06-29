@@ -1,3 +1,8 @@
+/**
+ * Copyright (c) 2026 Viu
+ * Licensed under the MIT License.
+ */
+
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'

@@ -1,3 +1,6 @@
+# Copyright (c) 2026 Viu
+# Licensed under the MIT License.
+
 from app import create_app
 
 app = create_app()

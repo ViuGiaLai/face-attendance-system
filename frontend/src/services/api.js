@@ -56,6 +56,7 @@ export const faceAPI = {
   batchRegister: (data) => api.post('/face/register/batch', data),
   recognize: (data) => api.post('/face/recognize', data),
   recognizeMulti: (data) => api.post('/face/recognize-multi', data),
+  verify: (data) => api.post('/face/verify', data),
   getRegistrationStatus: (userId) => api.get(`/face/register/status/${userId}`),
 };
 

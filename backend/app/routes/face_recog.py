@@ -284,6 +284,16 @@ def _complete_registration(user, existing_encodings, temp_count):
             user.face_encodings = json.dumps(all_encodings)
             user.face_registered_at = datetime.utcnow()
             user.updated_at = datetime.utcnow()
+            
+            # Save to FaceEmbedding table
+            from app.models.face_embedding import FaceEmbedding
+            # Clear old records first
+            FaceEmbedding.query.filter_by(user_id=user.id).delete()
+            # Add new records
+            for enc in all_encodings:
+                fe = FaceEmbedding(user_id=user.id, embedding=json.dumps(enc))
+                db.session.add(fe)
+                
             db.session.commit()
         except Exception as e:
             db.session.rollback()
@@ -451,6 +461,155 @@ def recognize_face():
             'details': error_msg,
             'type': type(e).__name__,
             'code': 'INTERNAL_SERVER_ERROR'
+        }), 500
+@face_bp.route('/verify', methods=['POST'])
+@jwt_required()
+def verify_face():
+    try:
+        print("Received request to /api/face/verify (1:1 Verification)")
+        data = request.get_json()
+        
+        if not data or (not data.get('image_data') and not data.get('face_descriptor')):
+            return jsonify({
+                'verified': False,
+                'error': 'Thiếu dữ liệu ảnh hoặc đặc trưng khuôn mặt',
+                'code': 'MISSING_DATA'
+            }), 400
+            
+        student_code = data.get('student_code', '').strip()
+        user_id = data.get('user_id')
+        
+        if not student_code and not user_id:
+            return jsonify({
+                'verified': False,
+                'error': 'Thiếu mã số sinh viên hoặc ID người dùng',
+                'code': 'MISSING_USER_IDENTIFIER'
+            }), 400
+            
+        # Find user
+        if student_code:
+            user = User.query.filter_by(student_code=student_code, is_active=True).first()
+        else:
+            user = User.query.filter_by(id=user_id, is_active=True).first()
+            
+        if not user:
+            return jsonify({
+                'verified': False,
+                'error': 'Không tìm thấy sinh viên hoặc tài khoản bị vô hiệu hóa',
+                'code': 'USER_NOT_FOUND'
+            }), 404
+            
+        if not user.face_encodings:
+            return jsonify({
+                'verified': False,
+                'error': 'Sinh viên này chưa đăng ký khuôn mặt',
+                'code': 'NO_FACE_DATA'
+            }), 400
+            
+        # Decode and process face encoding
+        face_encoding = None
+        face_descriptor = data.get('face_descriptor')
+        use_descriptor = face_descriptor and isinstance(face_descriptor, list) and len(face_descriptor) == 128
+        
+        # 1. Extract using Dlib if image_data is provided
+        if data.get('image_data'):
+            try:
+                if ',' in data['image_data']:
+                    image_bytes = base64.b64decode(data['image_data'].split(',')[-1])
+                else:
+                    image_bytes = base64.b64decode(data['image_data'])
+                face_encoding = face_engine.encode_face_from_image(image_bytes)
+            except Exception as e:
+                print(f"Dlib extraction failed in verify_face: {e}")
+                
+        # 2. Fallback to pre-computed descriptor
+        if face_encoding is None and use_descriptor:
+            face_encoding = np.array(face_descriptor, dtype=np.float32)
+            
+        if face_encoding is None:
+            return jsonify({
+                'verified': False,
+                'error': 'Không thể trích xuất khuôn mặt từ ảnh',
+                'code': 'NO_FACE_DETECTED'
+            }), 400
+            
+        # Perform 1:1 match
+        # Load user's own registered face encodings
+        user_encodings = json.loads(user.face_encodings)
+        best_distance = float('inf')
+        
+        # Check against each registered template for this user
+        for known in user_encodings:
+            known_arr = np.array(known, dtype=np.float32)
+            # If face_encoding is not yet a numpy array, convert it
+            unknown_arr = np.array(face_encoding, dtype=np.float32)
+            distance = np.linalg.norm(unknown_arr - known_arr)
+            if distance < best_distance:
+                best_distance = distance
+                
+        tolerance = face_engine.tolerance
+        verified = best_distance <= tolerance
+        
+        if verified:
+            confidence = 1 - (best_distance / tolerance)
+            
+            # Log attendance
+            class_id = data.get('class_id')
+            today = get_vn_today()
+            existing_log = AttendanceLog.query.filter_by(user_id=user.id, date=today).first()
+            
+            already_logged = False
+            attendance_id = None
+            
+            if existing_log:
+                already_logged = True
+                attendance_id = existing_log.id
+            else:
+                now = get_vn_now()
+                attendance = AttendanceLog(
+                    user_id=user.id,
+                    date=today,
+                    time=get_vn_time(),
+                    status='present',
+                    confidence=float(confidence),
+                    class_id=class_id,
+                    created_at=now
+                )
+                db.session.add(attendance)
+                db.session.commit()
+                attendance_id = attendance.id
+                log_audit(user.id, 'attendance', 'attendance_log', attendance.id,
+                          f'Điểm danh qua face verification 1:1 - {user.name}', None)
+                
+            return jsonify({
+                'verified': True,
+                'already_logged': already_logged,
+                'attendance_id': attendance_id,
+                'confidence': float(confidence),
+                'distance': float(best_distance),
+                'user': {
+                    'id': user.id,
+                    'name': user.name,
+                    'email': user.email,
+                    'role': user.role
+                }
+            }), 200
+        else:
+            return jsonify({
+                'verified': False,
+                'distance': float(best_distance),
+                'error': 'Khuôn mặt không khớp với sinh viên này',
+                'code': 'FACE_MISMATCH'
+            }), 200
+            
+    except Exception as e:
+        db.session.rollback()
+        print(f"Error in verify_face: {str(e)}")
+        traceback.print_exc()
+        return jsonify({
+            'verified': False,
+            'error': 'Lỗi máy chủ khi xác thực khuôn mặt',
+            'details': str(e)
         }), 500
 
 @face_bp.route('/recognize-multi', methods=['POST'])
@@ -713,6 +872,16 @@ def batch_register_faces():
             user.face_encodings = json.dumps(all_encodings)
             user.face_registered_at = datetime.utcnow()
             user.updated_at = datetime.utcnow()
+            
+            # Save to FaceEmbedding table
+            from app.models.face_embedding import FaceEmbedding
+            # Clear old records first
+            FaceEmbedding.query.filter_by(user_id=user.id).delete()
+            # Add new records
+            for enc in all_encodings:
+                fe = FaceEmbedding(user_id=user.id, embedding=json.dumps(enc))
+                db.session.add(fe)
+                
             db.session.commit()
         except Exception as e:
             db.session.rollback()

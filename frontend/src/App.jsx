@@ -1,3 +1,8 @@
+/**
+ * Copyright (c) 2026 Viu
+ * Licensed under the MIT License.
+ */
+
 import React, { Suspense } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
@@ -35,6 +40,7 @@ const ProtectedRoute = ({ children }) => {
 
 const AppContent = () => {
   const { user, loading } = useAuth();
+  const { dark } = useTheme();
 
   if (loading) {
     return <Loading />;
@@ -94,6 +100,11 @@ const AppContent = () => {
           </Routes>
         </div>
       </Suspense>
+      <footer className={`footer ${dark ? 'footer-dark' : ''}`}>
+        <span>© 2026 Viu. All rights reserved.</span>
+        <span className="footer-separator">|</span>
+        <span>Built by Viu</span>
+      </footer>
     </>
   );
 };

@@ -1,3 +1,6 @@
+# Copyright (c) 2026 Viu
+# Licensed under the MIT License.
+
 from flask import Flask
 from flask_cors import CORS
 from flask_jwt_extended import JWTManager

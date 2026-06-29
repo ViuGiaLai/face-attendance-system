@@ -63,23 +63,44 @@ class FaceEngine:
             self._models_loaded = False
             raise RuntimeError(f"Failed to load models: {str(e)}")
 
-    def load_face_encodings_from_db(self, users):
-        """Load face encodings from user database"""
+    def load_face_encodings_from_db(self, users=None):
+        """Load face encodings from FaceEmbedding table, falling back to user database if empty."""
         self.known_face_encodings = []
         self.known_face_ids = []
         
-        for user in users:
-            if user.face_encodings and user.is_active:
-                try:
-                    encodings_list = json.loads(user.face_encodings)
-                    for encoding in encodings_list:
-                        # Ensure it is a numpy array of float32
+        try:
+            from app.models.face_embedding import FaceEmbedding
+            from app.models.user import User
+            
+            # Query all active embeddings
+            embeddings = FaceEmbedding.query.join(User).filter(User.is_active == True).all()
+            
+            if embeddings:
+                for fe in embeddings:
+                    try:
+                        encoding = json.loads(fe.embedding)
                         self.known_face_encodings.append(np.array(encoding, dtype=np.float32))
-                        self.known_face_ids.append(user.id)
-                    print(f"Loaded {len(encodings_list)} face encodings for user {user.name}")
-                except Exception as e:
-                    print(f"Error loading face encodings for user {user.id}: {e}")
-        
+                        self.known_face_ids.append(fe.user_id)
+                    except Exception as e:
+                        print(f"Error parsing face embedding {fe.id}: {e}")
+                print(f"Loaded {len(embeddings)} face embeddings from database table")
+            else:
+                # Fallback to User.face_encodings if table is empty
+                print("No records in face_embeddings table. Trying fallback to User.face_encodings...")
+                target_users = users if users is not None else User.query.filter(User.face_encodings.isnot(None), User.is_active == True).all()
+                for user in target_users:
+                    if user.face_encodings and user.is_active:
+                        try:
+                            encodings_list = json.loads(user.face_encodings)
+                            for encoding in encodings_list:
+                                self.known_face_encodings.append(np.array(encoding, dtype=np.float32))
+                                self.known_face_ids.append(user.id)
+                            print(f"Loaded {len(encodings_list)} fallback face encodings for user {user.name}")
+                        except Exception as e:
+                            print(f"Error loading fallback face encodings for user {user.id}: {e}")
+        except Exception as e:
+            print(f"Error in load_face_encodings_from_db: {e}")
+            
         print(f"Total loaded face encodings: {len(self.known_face_encodings)}")
 
     def _process_image(self, image_data: Union[bytes, str]) -> Optional[np.ndarray]:

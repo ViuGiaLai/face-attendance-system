@@ -26,6 +26,9 @@ const Attendance = () => {
   const [currentStep, setCurrentStep] = useState(0);
   const [loading, setLoading] = useState(false);
   const [resetCounter, setResetCounter] = useState(0);
+  const [verifyMode, setVerifyMode] = useState('1n'); // '11' (1:1) or '1n' (1:N)
+  const [studentCode, setStudentCode] = useState('');
+  const [cameraActive, setCameraActive] = useState(true);
 
   const steps = [
     'Nhìn thẳng vào camera',
@@ -108,6 +111,52 @@ const Attendance = () => {
         });
 
       } else {
+        if (verifyMode === '11') {
+          if (!studentCode.trim()) {
+            setRecognitionResult({
+              success: false,
+              message: 'Vui lòng nhập Mã số sinh viên'
+            });
+            setLoading(false);
+            return;
+          }
+
+          const payload = {
+            student_code: studentCode,
+            image_data: imageData,
+            class_id: selectedClass || undefined
+          };
+          if (faceDescriptor) payload.face_descriptor = faceDescriptor;
+
+          const response = await faceAPI.verify(payload);
+
+          if (response.data.verified) {
+            if (faceDescriptor) {
+              addToFaceCache([{
+                user_id: response.data.user.id,
+                name: response.data.user.name,
+                descriptor: faceDescriptor,
+              }]);
+            }
+            attendanceAPI.clearCache();
+            setRecognitionResult({
+              success: true,
+              message: response.data.already_logged 
+                ? `${response.data.user.name} đã điểm danh hôm nay rồi!` 
+                : `Điểm danh thành công cho ${response.data.user.name}!`,
+              user: response.data.user,
+              confidence: response.data.confidence
+            });
+          } else {
+            setRecognitionResult({
+              success: false,
+              message: response.data.error || 'Khuôn mặt không khớp với sinh viên này.'
+            });
+          }
+          setLoading(false);
+          return;
+        }
+
         // Try local cache first
         if (faceDescriptor) {
           const localMatch = findLocalMatch(faceDescriptor);
@@ -305,6 +354,37 @@ const Attendance = () => {
         </div>
       </div>
 
+      {mode === 'recognize' && (
+        <div style={{ display: 'flex', justifyContent: 'center', gap: 12, marginBottom: 24 }}>
+          <button
+            onClick={() => { setVerifyMode('11'); setCameraActive(false); setRecognitionResult(null); }}
+            style={{
+              padding: '8px 16px', borderRadius: 8, fontSize: 13, fontWeight: 600,
+              border: verifyMode === '11' ? 'none' : `1px solid ${dark ? '#4b5563' : '#e5e7eb'}`,
+              background: verifyMode === '11' ? 'linear-gradient(135deg, #10b981, #059669)' : 'transparent',
+              color: verifyMode === '11' ? 'white' : (dark ? '#9ca3af' : '#6b7280'), cursor: 'pointer',
+              boxShadow: verifyMode === '11' ? '0 4px 12px rgba(16,185,129,0.2)' : 'none',
+              transition: 'all 0.2s'
+            }}
+          >
+            Xác thực Mã số (1:1 - Khuyên dùng)
+          </button>
+          <button
+            onClick={() => { setVerifyMode('1n'); setCameraActive(true); setRecognitionResult(null); }}
+            style={{
+              padding: '8px 16px', borderRadius: 8, fontSize: 13, fontWeight: 600,
+              border: verifyMode === '1n' ? 'none' : `1px solid ${dark ? '#4b5563' : '#e5e7eb'}`,
+              background: verifyMode === '1n' ? 'linear-gradient(135deg, #3b82f6, #1d4ed8)' : 'transparent',
+              color: verifyMode === '1n' ? 'white' : (dark ? '#9ca3af' : '#6b7280'), cursor: 'pointer',
+              boxShadow: verifyMode === '1n' ? '0 4px 12px rgba(59,130,246,0.2)' : 'none',
+              transition: 'all 0.2s'
+            }}
+          >
+            Quét tự động (1:N)
+          </button>
+        </div>
+      )}
+
       {mode === 'register' && (user.role === 'admin' || user.role === 'teacher') && (
         <div style={{
           background: dark ? '#1f2937' : 'white', borderRadius: 16, padding: 24,
@@ -406,15 +486,84 @@ const Attendance = () => {
         </div>
       )}
 
-      <WebcamCapture
-        onCapture={handleFaceCapture}
-        onRegister={handleFinalRegistration}
-        mode={mode}
-        disabled={mode === 'register' && !selectedUser}
-        currentStep={currentStep}
-        totalSteps={steps.length}
-        resetKey={resetCounter}
-      />
+      {mode === 'recognize' && verifyMode === '11' && !cameraActive ? (
+        <div style={{
+          background: dark ? '#1f2937' : 'white', borderRadius: 16, padding: 32,
+          maxWidth: 500, margin: '0 auto 24px', border: `1px solid ${dark ? '#374151' : '#e5e7eb'}`,
+          textAlign: 'center', boxShadow: '0 10px 30px rgba(0,0,0,0.05)'
+        }}>
+          <FiUser style={{ fontSize: 40, color: '#3b82f6', marginBottom: 16, margin: '0 auto 12px' }} />
+          <h3 style={{ color: dark ? '#f3f4f6' : '#1f2937', fontWeight: 700, fontSize: 18, marginBottom: 8 }}>Nhập Mã số sinh viên</h3>
+          <p style={{ color: dark ? '#9ca3af' : '#6b7280', fontSize: 14, marginBottom: 20 }}>Hệ thống sẽ đối sánh khuôn mặt quét được với ảnh gốc đã đăng ký của bạn để đảm bảo độ chính xác tuyệt đối.</p>
+          <input
+            type="text"
+            placeholder="Nhập mã số của bạn (VD: 20210001)..."
+            value={studentCode}
+            onChange={(e) => setStudentCode(e.target.value)}
+            style={{
+              width: '100%', padding: '12px 16px', borderRadius: 10,
+              border: `2px solid ${dark ? '#4b5563' : '#e5e7eb'}`,
+              background: dark ? '#374151' : 'white', color: dark ? '#f3f4f6' : '#1f2937',
+              fontSize: 16, outline: 'none', marginBottom: 20, boxSizing: 'border-box',
+              textAlign: 'center', fontWeight: 600
+            }}
+          />
+          <button
+            onClick={() => {
+              if (!studentCode.trim()) {
+                alert('Vui lòng nhập mã số sinh viên');
+                return;
+              }
+              setCameraActive(true);
+              setRecognitionResult(null);
+            }}
+            style={{
+              width: '100%', padding: '12px 24px',
+              border: 'none', borderRadius: 10, background: 'linear-gradient(135deg, #3b82f6, #1d4ed8)',
+              color: 'white', fontSize: 15, fontWeight: 600, cursor: 'pointer',
+              boxShadow: '0 4px 15px rgba(59,130,246,0.3)',
+            }}
+          >
+            Bật camera xác thực
+          </button>
+        </div>
+      ) : (
+        <>
+          {mode === 'recognize' && verifyMode === '11' && cameraActive && (
+            <div style={{
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+              maxWidth: 600, margin: '0 auto 16px', padding: '10px 16px',
+              background: dark ? '#1e293b' : '#f1f5f9', borderRadius: 10,
+              border: `1px solid ${dark ? '#334155' : '#e2e8f0'}`
+            }}>
+              <span style={{ fontSize: 14, fontWeight: 600, color: dark ? '#f3f4f6' : '#1f2937' }}>
+                Đang xác thực cho mã số: <strong style={{ color: '#3b82f6' }}>{studentCode}</strong>
+              </span>
+              <button
+                onClick={() => {
+                  setCameraActive(false);
+                  setRecognitionResult(null);
+                }}
+                style={{
+                  background: 'transparent', border: 'none', color: '#ef4444',
+                  fontSize: 13, fontWeight: 600, cursor: 'pointer'
+                }}
+              >
+                Thay đổi mã số
+              </button>
+            </div>
+          )}
+          <WebcamCapture
+            onCapture={handleFaceCapture}
+            onRegister={handleFinalRegistration}
+            mode={mode}
+            disabled={(mode === 'register' && !selectedUser) || (mode === 'recognize' && verifyMode === '11' && !studentCode)}
+            currentStep={currentStep}
+            totalSteps={steps.length}
+            resetKey={resetCounter}
+          />
+        </>
+      )}
 
       {recognitionResult && !recognitionResult.registration_complete && (
         <div style={{

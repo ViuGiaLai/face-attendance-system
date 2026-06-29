@@ -23,6 +23,7 @@ class User(db.Model):
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     attendance_logs = db.relationship('AttendanceLog', backref='user', cascade='all, delete-orphan', lazy=True)
+    embeddings = db.relationship('FaceEmbedding', backref='user', cascade='all, delete-orphan', lazy=True)
 
     def to_dict(self):
         return {
