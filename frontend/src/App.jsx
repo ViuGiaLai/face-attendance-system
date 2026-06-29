@@ -7,7 +7,7 @@ import React, { Suspense } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { FaceModelProvider } from './context/FaceModelContext';
-import { ThemeProvider } from './context/ThemeContext';
+import { ThemeProvider, useTheme } from './context/ThemeContext';
 
 // Lazy load components for better performance
 const Navbar = React.lazy(() => import('./components/Navbar'));
@@ -50,61 +50,63 @@ const AppContent = () => {
     <>
       <Suspense fallback={<Loading />}>
         {user && <Navbar />}
-        <div className="app-content">
-          <Routes>
-        <Route path="/login" element={
-          user ? <Navigate to="/" /> : <Login />
-        } />
-        <Route path="/register" element={
-          user ? <Navigate to="/" /> : <Register />
-        } />
-        <Route path="/" element={
-          <ProtectedRoute>
-            <Dashboard />
-          </ProtectedRoute>
-        } />
-        <Route path="/attendance" element={
-          <ProtectedRoute>
-            <Attendance />
-          </ProtectedRoute>
-        } />
-        <Route path="/history" element={
-          <ProtectedRoute>
-            <AttendanceHistory />
-          </ProtectedRoute>
-        } />
-        <Route path="/users" element={
-          <ProtectedRoute>
-            <UserManagement />
-          </ProtectedRoute>
-        } />
-        <Route path="/classes" element={
-          <ProtectedRoute>
-            <ClassManagement />
-          </ProtectedRoute>
-        } />
-        <Route path="/subjects" element={
-          <ProtectedRoute>
-            <SubjectManagement />
-          </ProtectedRoute>
-        } />
-        <Route path="/schedules" element={
-          <ProtectedRoute>
-            <ScheduleManagement />
-          </ProtectedRoute>
-        } />
-        {/* Catch-all route */}
-        <Route path="*" element={
-          <Navigate to="/" replace />
-        } />
-          </Routes>
+        <div className={`app-content${!user ? ' app-content-full' : ''}`}>
+          <div className="app-main">
+            <Routes>
+          <Route path="/login" element={
+            user ? <Navigate to="/" /> : <Login />
+          } />
+          <Route path="/register" element={
+            user ? <Navigate to="/" /> : <Register />
+          } />
+          <Route path="/" element={
+            <ProtectedRoute>
+              <Dashboard />
+            </ProtectedRoute>
+          } />
+          <Route path="/attendance" element={
+            <ProtectedRoute>
+              <Attendance />
+            </ProtectedRoute>
+          } />
+          <Route path="/history" element={
+            <ProtectedRoute>
+              <AttendanceHistory />
+            </ProtectedRoute>
+          } />
+          <Route path="/users" element={
+            <ProtectedRoute>
+              <UserManagement />
+            </ProtectedRoute>
+          } />
+          <Route path="/classes" element={
+            <ProtectedRoute>
+              <ClassManagement />
+            </ProtectedRoute>
+          } />
+          <Route path="/subjects" element={
+            <ProtectedRoute>
+              <SubjectManagement />
+            </ProtectedRoute>
+          } />
+          <Route path="/schedules" element={
+            <ProtectedRoute>
+              <ScheduleManagement />
+            </ProtectedRoute>
+          } />
+          {/* Catch-all route */}
+          <Route path="*" element={
+            <Navigate to="/" replace />
+          } />
+            </Routes>
+          </div>
+          <footer className={`footer ${dark ? 'footer-dark' : ''}`}>
+            <span>© 2026 Viu. All rights reserved.</span>
+            <span className="footer-separator">|</span>
+            <span>Built by Viu</span>
+          </footer>
         </div>
       </Suspense>
-      <footer className={`footer ${dark ? 'footer-dark' : ''}`}>
-        <span>© 2026 Viu. All rights reserved.</span>
-        <span className="footer-separator">|</span>
-        <span>Built by Viu</span>
-      </footer>
     </>
   );
 };
