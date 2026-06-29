@@ -428,7 +428,7 @@ def recognize_face():
 
             print(f"Face recognition result - User ID: {user_id}, Confidence: {confidence}")
 
-            if user_id and confidence > 0.6:
+            if user_id and confidence > 0.25:
                 return _process_recognized_user(user_id, confidence, class_id)
             else:
                 print(f"No face recognized or low confidence: {confidence}")
