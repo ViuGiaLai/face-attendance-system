@@ -113,31 +113,24 @@ const Register = () => {
   const bgCard = dark ? '#1f2937' : 'white';
   const textColor = dark ? '#f3f4f6' : '#1f2937';
   const mutedColor = dark ? '#9ca3af' : '#6b7280';
-  const borderColor = dark ? '#374151' : '#e5e7eb';
-
-  const inputStyle = (hasError) => ({
-    background: dark ? '#374151' : '#f9fafb',
-    color: textColor,
-    border: `1px solid ${hasError ? '#ef4444' : dark ? '#4b5563' : '#d1d5db'}`,
-  });
+  const inputBg = dark ? '#374151' : '#f9fafb';
 
   const InputField = ({ icon, type, name, placeholder, label, required, autoComplete, hasError, errorMsg, rightIcon, onRightClick }) => (
     <div className="auth-input-group">
       <label className="auth-input-label" style={{ color: textColor }}>{label}{required && ' *'}</label>
-      <div className="auth-input-wrapper" style={{ position: 'relative' }}>
+      <div className="auth-input-wrapper" style={{ borderColor: hasError ? '#ef4444' : dark ? '#4b5563' : '#d1d5db' }}>
         <span className="auth-input-icon" style={{ color: mutedColor }}>{icon}</span>
         <input className="auth-input" style={{
-          ...inputStyle(hasError),
+          background: inputBg, color: textColor,
           paddingRight: rightIcon ? 40 : 38,
         }}
           type={type} name={name} placeholder={placeholder}
           value={formData[name]} onChange={handleChange}
           required={required} disabled={loading} autoComplete={autoComplete} />
         {rightIcon && (
-          <span onClick={onRightClick} style={{
-            position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)',
-            cursor: 'pointer', color: mutedColor, display: 'flex',
-          }}>{rightIcon}</span>
+          <button type="button" className="auth-input-toggle" onClick={onRightClick} tabIndex={-1}>
+            {rightIcon}
+          </button>
         )}
       </div>
       {hasError && <div className="auth-field-error">{errorMsg}</div>}
@@ -145,13 +138,13 @@ const Register = () => {
   );
 
   return (
-    <div className="auth-page" style={{ background: dark ? '#111827' : '#f3f4f6', minHeight: '100vh' }}>
+    <div className="auth-page" style={{ background: dark ? 'linear-gradient(135deg, #1e1b4b, #312e81)' : undefined }}>
       <div className="auth-container">
-        <div className="auth-brand" style={{ background: dark ? '#1a1a3e' : undefined }}>
+        <div className="auth-brand">
           <div className="auth-brand-logo">
             <img src="/logo_face.ico" alt="FaceAttendance" className="auth-brand-logo-icon" style={{ width: 44, height: 44, borderRadius: 12 }} />
             <div>
-              <div className="auth-brand-title" style={{ color: '#f3f4f6' }}>FaceAttendance</div>
+              <div className="auth-brand-title">FaceAttendance</div>
               <div className="auth-brand-subtitle">Hệ thống điểm danh thông minh</div>
             </div>
           </div>
@@ -201,13 +194,12 @@ const Register = () => {
                 hasError={!!errors.email} errorMsg={errors.email} />
               <div className="auth-input-group">
                 <label className="auth-input-label" style={{ color: textColor }}>Vai trò</label>
-                <div className="auth-input-wrapper" style={{ position: 'relative' }}>
+                <div className="auth-input-wrapper" style={{ borderColor: dark ? '#4b5563' : '#d1d5db' }}>
                   <span className="auth-input-icon" style={{ color: mutedColor }}>{getRoleIcon(formData.role)}</span>
                   <select className="auth-select" name="role" value={formData.role}
                     onChange={handleChange} disabled={loading}
                     style={{
-                      ...inputStyle(false), paddingLeft: 36, appearance: 'auto',
-                      cursor: 'pointer',
+                      background: inputBg, color: textColor, cursor: 'pointer',
                     }}>
                     {roleOptions.map(opt => (
                       <option key={opt.value} value={opt.value}>{opt.label}</option>
@@ -226,7 +218,7 @@ const Register = () => {
                 hasError={false} errorMsg="" />
             </div>
 
-            <div style={{ borderTop: `1px solid ${loading ? 'transparent' : borderColor}`, margin: '8px 0', paddingTop: 12 }}>
+            <div style={{ borderTop: `1px solid ${loading ? 'transparent' : dark ? '#374151' : '#e5e7eb'}`, margin: '8px 0', paddingTop: 12 }}>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 12px' }}>
                 <InputField icon={<FiLock size={17} />} type={showPassword ? 'text' : 'password'}
                   name="password" placeholder="Ít nhất 6 ký tự" label="Mật khẩu" required autoComplete="new-password"
@@ -242,7 +234,7 @@ const Register = () => {
             </div>
 
             <button className="auth-button" type="submit" disabled={loading}
-              style={{ opacity: loading ? 0.7 : 1, marginTop: 8 }}>
+              style={{ marginTop: 8 }}>
               {loading ? <><div className="auth-button-spinner" /> Đang đăng ký...</>
                 : <><FiUserPlus size={17} /> Đăng ký tài khoản</>}
             </button>

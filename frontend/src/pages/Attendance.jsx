@@ -561,6 +561,7 @@ const Attendance = () => {
             currentStep={currentStep}
             totalSteps={steps.length}
             resetKey={resetCounter}
+            autoStopOnSuccess={mode === 'recognize'}
           />
         </>
       )}

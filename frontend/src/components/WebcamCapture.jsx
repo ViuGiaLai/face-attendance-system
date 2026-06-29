@@ -37,7 +37,8 @@ const WebcamCapture = ({
   className = '',
   currentStep = 0,
   totalSteps = 5,
-  resetKey
+  resetKey,
+  autoStopOnSuccess = false,
 }) => {
   const webcamRef = useRef(null);
   const canvasRef = useRef(null);
@@ -68,12 +69,10 @@ const WebcamCapture = ({
   const [spoofScore, setSpoofScore] = useState(null);
   const [spoofChecked, setSpoofChecked] = useState(false);
 
-  // Toggle maximized view (CSS-only, no browser fullscreen API)
   const toggleFullscreen = useCallback(() => {
     setIsFullscreen(prev => !prev);
   }, []);
 
-  // Liveness: compute EAR (Eye Aspect Ratio)
   const computeEAR = useCallback((landmarks) => {
     const getEye = (points, idx) => ({
       x: points[idx].x, y: points[idx].y
@@ -91,7 +90,6 @@ const WebcamCapture = ({
     return (calcEAR(leftEye) + calcEAR(rightEye)) / 2;
   }, []);
 
-  // Detection loop – optimized with refs + throttled state updates
   useEffect(() => {
     if (!modelsLoaded || !isCameraActive || !webcamRef.current?.video) return;
 
@@ -111,7 +109,6 @@ const WebcamCapture = ({
 
         const faceDetected = detections.length > 0;
 
-        // Throttle React state – only update when value changes
         if (faceDetected !== hasFaceRef.current) {
           hasFaceRef.current = faceDetected;
           setHasFace(faceDetected);
@@ -121,7 +118,6 @@ const WebcamCapture = ({
           setFaceCount(detections.length);
         }
 
-        // Liveness + pose (register mode only)
         if (needLandmarks && faceDetected && detections[0].landmarks) {
           const landmarks = detections[0].landmarks.positions;
           const pose = estimateHeadPose(landmarks);
@@ -156,7 +152,6 @@ const WebcamCapture = ({
           }
         }
 
-        // Canvas drawing (no state updates)
         const canvas = canvasRef.current;
         if (!canvas) return;
         const displaySize = { width: video.offsetWidth, height: video.offsetHeight };
@@ -183,7 +178,6 @@ const WebcamCapture = ({
           ctx.fillText(scoreStr, box.x + 6, box.y - 8);
         }
 
-        // Only draw landmarks + head pose in register mode
         if (needLandmarks) {
           faceapi.draw.drawFaceLandmarks(canvas, resized);
 
@@ -191,7 +185,7 @@ const WebcamCapture = ({
             const box = resized[0].detection.box;
             const cx = box.x + box.width / 2;
             const cy = box.y + box.height / 2;
-            const len = 30 + Math.abs(poseRef.current.yaw * 5); // dynamic length
+            const len = 30 + Math.abs(poseRef.current.yaw * 5);
             const dx = poseRef.current.yaw * len;
             const dy = poseRef.current.pitch * len;
 
@@ -209,7 +203,6 @@ const WebcamCapture = ({
           }
         }
       } catch (err) {
-        // skip frame errors silently
       }
     };
 
@@ -222,7 +215,6 @@ const WebcamCapture = ({
     };
   }, [modelsLoaded, isCameraActive, mode]);
 
-  // Extract ALL descriptors (multi-face)
   const extractAllDescriptors = async (imageSrc) => {
     if (!modelsLoaded) return [];
     try {
@@ -316,7 +308,6 @@ const WebcamCapture = ({
       return;
     }
 
-    // Liveness check for register mode
     if (mode === 'register' && !skipLivenessCheck && !livenessPassed) {
       const next = CHALLENGES[livenessChallenge];
       setError(next ? `Vui lòng: ${next.instruction}` : 'Vui lòng hoàn thành xác thực trước khi chụp');
@@ -331,7 +322,6 @@ const WebcamCapture = ({
       const imageSrc = webcamRef.current.getScreenshot();
       setImgSrc(imageSrc);
 
-      // Spoof detection
       const spoof = await detectScreenSpoof(imageSrc);
       setSpoofScore(spoof.score);
       setSpoofChecked(true);
@@ -341,7 +331,6 @@ const WebcamCapture = ({
         return;
       }
 
-      // Score image quality
       const qualityScore = await scoreImage(imageSrc);
       const faceResults = await extractAllDescriptors(imageSrc);
       const descriptor = faceResults.length > 0 ? faceResults[0].descriptor : null;
@@ -364,7 +353,6 @@ const WebcamCapture = ({
         timestamp: new Date()
       }]);
 
-      // Reset liveness for next capture
       setLivenessPassed(false);
       setLivenessChallenge(0);
       setLivenessCompleted(new Set());
@@ -375,6 +363,9 @@ const WebcamCapture = ({
       setCaptureStatus('success');
       playSuccess();
       vibrate(100);
+      if (autoStopOnSuccess) {
+        setIsAutoCapturing(false);
+      }
     } catch (error) {
       setCaptureStatus('error');
       setError(error.message || 'Có lỗi xảy ra khi chụp ảnh. Vui lòng thử lại.');
@@ -382,7 +373,7 @@ const WebcamCapture = ({
     } finally {
       setIsCapturing(false);
     }
-  }, [isCapturing, onCapture, onCaptureMulti, currentStep, hasFace, mode, livenessPassed]);
+  }, [isCapturing, onCapture, onCaptureMulti, currentStep, hasFace, mode, livenessPassed, autoStopOnSuccess]);
 
   const handleRegister = useCallback(async () => {
     if (capturedImages.length === 0) {
@@ -519,21 +510,41 @@ const WebcamCapture = ({
 
   const canRegister = capturedImages.length >= 5;
 
+  const s = {
+    card: (dark) => ({
+      background: dark ? '#1f2937' : 'white',
+      borderRadius: 16,
+      padding: 20,
+      boxShadow: dark ? '0 4px 20px rgba(0,0,0,0.3)' : '0 4px 20px rgba(0,0,0,0.06)',
+      border: dark ? '1px solid #374151' : '1px solid rgba(0,0,0,0.05)',
+    }),
+    btn: (bg, shadows) => ({
+      display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+      padding: '10px 20px', borderRadius: 12, border: 'none',
+      fontSize: 13, fontWeight: 600, cursor: 'pointer',
+      background: bg, color: 'white', transition: 'all 0.2s',
+      boxShadow: shadows || 'none',
+    }),
+  };
+
+  const { dark: isDark } = { dark: false };
+  const bgCard = isDark ? '#1f2937' : 'white';
+  const textColor = isDark ? '#f3f4f6' : '#1f2937';
+  const mutedColor = isDark ? '#9ca3af' : '#6b7280';
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       {!modelsLoaded && (
-        <div style={{ padding: 12, background: '#fef3c7', border: '1px solid #fbbf24', borderRadius: 12, textAlign: 'center', fontSize: 13, color: '#92400e' }}>
+        <div style={{ padding: 14, background: '#fef3c7', border: '1px solid #fbbf24', borderRadius: 12, textAlign: 'center', fontSize: 13, color: '#92400e' }}>
           <FiLoader style={{ marginRight: 8, verticalAlign: 'middle' }} />
           Đang tải mô hình nhận diện khuôn mặt...
         </div>
       )}
 
       {error && (
-        <div style={{ padding: 16, background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 12 }}>
-          <div style={{ display: 'flex', alignItems: 'center' }}>
-            <FiAlertCircle style={{ marginRight: 12, color: '#ef4444', flexShrink: 0 }} />
-            <span style={{ color: '#991b1b' }}>{error}</span>
-          </div>
+        <div style={{ padding: 14, background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 12, display: 'flex', alignItems: 'center', gap: 10, color: '#991b1b', fontSize: 13 }}>
+          <FiAlertCircle style={{ flexShrink: 0 }} />
+          <span>{error}</span>
         </div>
       )}
 
@@ -543,11 +554,11 @@ const WebcamCapture = ({
           borderRadius: 16, padding: 20,
           border: '1px solid #dbeafe',
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
             <span style={{ fontSize: 14, fontWeight: 600, color: '#1e40af' }}>
-              Tiến trình đăng ký: {capturedImages.length}/5 ảnh
+              Tiến trình: {capturedImages.length}/5 ảnh
             </span>
-            <span style={{ fontSize: 14, color: '#3b82f6' }}>
+            <span style={{ fontSize: 14, color: '#3b82f6', fontWeight: 600 }}>
               {Math.min(100, (capturedImages.length / 5) * 100)}%
             </span>
           </div>
@@ -562,41 +573,34 @@ const WebcamCapture = ({
           </div>
           <p style={{ fontSize: 12, color: '#3b82f6', marginTop: 8 }}>
             {capturedImages.length < 5
-              ? `Cần chụp thêm ${5 - capturedImages.length} ảnh nữa`
-              : 'Đã đủ số lượng ảnh. Có thể đăng ký ngay!'}
+              ? `Cần chụp thêm ${5 - capturedImages.length} ảnh`
+              : 'Đã đủ ảnh! Có thể đăng ký ngay.'}
           </p>
         </div>
       )}
 
       <div ref={cameraContainerRef} style={{
         position: 'relative',
-        background: isFullscreen ? '#000' : 'linear-gradient(135deg, #667eea, #764ba2)',
-        borderRadius: isFullscreen ? 0 : 20, overflow: 'hidden',
-        boxShadow: '0 20px 40px rgba(0,0,0,0.1)',
-        maxWidth: isFullscreen ? '100%' : 500,
-        margin: '0 auto',
-        padding: isFullscreen ? 0 : 20,
+        borderRadius: isFullscreen ? 0 : 20,
+        overflow: 'hidden',
+        boxShadow: '0 12px 40px rgba(0,0,0,0.12)',
+        background: '#000',
         ...(isFullscreen
-          ? { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, maxWidth: '100%', zIndex: 9999 }
+          ? { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 9999 }
           : {}),
       }}>
         {isCameraActive ? (
-          <div style={{ position: 'relative', height: isFullscreen ? '100vh' : 'auto' }}>
+          <div style={{ position: 'relative', width: '100%', aspectRatio: isFullscreen ? 'auto' : '4/3', height: isFullscreen ? '100vh' : 'auto' }}>
             <Webcam
               audio={false}
               ref={webcamRef}
               mirrored
               screenshotFormat="image/jpeg"
-              videoConstraints={{
-                width: 640,
-                height: 480,
-                facingMode: 'user'
-              }}
+              videoConstraints={{ width: 640, height: 480, facingMode: 'user' }}
               style={{
-                width: '100%', height: isFullscreen ? '100vh' : 'auto',
-                maxHeight: isFullscreen ? '100vh' : 400,
+                width: '100%', height: '100%',
                 objectFit: isFullscreen ? 'contain' : 'cover',
-                borderRadius: isFullscreen ? 0 : 15,
+                display: 'block',
               }}
               onUserMediaError={(err) => {
                 console.error('Webcam error:', err);
@@ -608,41 +612,39 @@ const WebcamCapture = ({
               ref={canvasRef}
               style={{
                 position: 'absolute', top: 0, left: 0,
-                width: '100%', height: isFullscreen ? '100vh' : '100%',
-                borderRadius: isFullscreen ? 0 : 15, pointerEvents: 'none',
+                width: '100%', height: '100%',
+                pointerEvents: 'none',
               }}
             />
 
             {countdown !== null && (
               <div style={{
-                position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+                position: 'absolute', inset: 0,
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
-                background: 'rgba(0,0,0,0.35)',
-                borderRadius: 15,
+                background: 'rgba(0,0,0,0.4)',
                 zIndex: 10,
               }}>
                 <div style={{
-                  width: 100, height: 100,
+                  width: 90, height: 90,
                   borderRadius: '50%',
-                  background: 'rgba(255,255,255,0.9)',
+                  background: 'rgba(255,255,255,0.95)',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  boxShadow: '0 8px 30px rgba(0,0,0,0.2)',
+                  boxShadow: '0 8px 30px rgba(0,0,0,0.3)',
                 }}>
-                  <span style={{ fontSize: 48, fontWeight: 800, color: '#1f2937' }}>
+                  <span style={{ fontSize: 40, fontWeight: 800, color: '#1f2937' }}>
                     {countdown}
                   </span>
                 </div>
               </div>
             )}
 
-            {/* Liveness challenge overlay for register mode */}
             {mode === 'register' && !livenessPassed && (
               <div style={{
-                position: 'absolute', top: 70, left: '50%', transform: 'translateX(-50%)',
-                background: challengeStatus === 'passed' ? 'rgba(34,197,94,0.9)' : 'rgba(0,0,0,0.7)',
+                position: 'absolute', top: 16, left: '50%', transform: 'translateX(-50%)',
+                background: challengeStatus === 'passed' ? 'rgba(34,197,94,0.9)' : 'rgba(0,0,0,0.65)',
                 color: 'white',
-                padding: '8px 20px', borderRadius: 16,
-                fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap',
+                padding: '6px 16px', borderRadius: 20,
+                fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap',
                 zIndex: 10, display: 'flex', alignItems: 'center', gap: 8,
                 backdropFilter: 'blur(4px)',
               }}>
@@ -659,59 +661,68 @@ const WebcamCapture = ({
                     ? '✓ Hoàn thành!'
                     : CHALLENGES[livenessChallenge]?.instruction || 'Xác thực...'}
                 </span>
-                {currentPose && challengeStatus !== 'passed' && (
-                  <span style={{ fontSize: 11, opacity: 0.7, marginLeft: 4 }}>
-                    ({getHeadPoseLabel(currentPose.yaw, currentPose.pitch)})
-                  </span>
-                )}
               </div>
             )}
-            {/* Challenge progress dots */}
+
             {mode === 'register' && !livenessPassed && (
               <div style={{
-                position: 'absolute', bottom: 50, left: '50%', transform: 'translateX(-50%)',
+                position: 'absolute', bottom: 60, left: '50%', transform: 'translateX(-50%)',
                 display: 'flex', gap: 6, zIndex: 10,
               }}>
                 {CHALLENGES.map((ch, i) => (
                   <div key={ch.id} style={{
-                    width: 10, height: 10, borderRadius: '50%',
+                    width: 8, height: 8, borderRadius: '50%',
                     background: livenessCompleted.has(ch.id) ? '#22c55e'
                       : i === livenessChallenge ? '#f59e0b'
-                      : 'rgba(255,255,255,0.4)',
+                      : 'rgba(255,255,255,0.35)',
                     transition: 'all 0.3s',
-                    transform: i === livenessChallenge ? 'scale(1.3)' : 'scale(1)',
+                    transform: i === livenessChallenge ? 'scale(1.4)' : 'scale(1)',
                   }} />
                 ))}
               </div>
             )}
+
             {mode === 'register' && livenessPassed && (
               <div style={{
-                position: 'absolute', top: 70, left: '50%', transform: 'translateX(-50%)',
+                position: 'absolute', top: 16, left: '50%', transform: 'translateX(-50%)',
                 background: 'rgba(34,197,94,0.9)',
-                color: 'white', padding: '4px 16px', borderRadius: 16,
+                color: 'white', padding: '4px 14px', borderRadius: 20,
                 fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap',
-                zIndex: 10, display: 'flex', alignItems: 'center', gap: 4,
+                zIndex: 10, display: 'flex', alignItems: 'center', gap: 6,
+                backdropFilter: 'blur(4px)',
               }}>
                 <FiSmile size={14} /> ✓ Xác thực hoàn tất
               </div>
             )}
 
+            {!livenessPassed && !hasFace && (
+              <div style={{
+                position: 'absolute', inset: 0,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                background: 'rgba(0,0,0,0.35)',
+                zIndex: 5,
+              }}>
+                <div style={{ textAlign: 'center', color: 'white' }}>
+                  <FiEye size={40} style={{ opacity: 0.6, marginBottom: 12 }} />
+                  <p style={{ fontSize: 16, fontWeight: 600, opacity: 0.9 }}>Đang tìm khuôn mặt...</p>
+                </div>
+              </div>
+            )}
+
             <div style={{
-              position: 'absolute', bottom: 20,
-              left: '50%', transform: 'translateX(-50%)',
-              background: 'rgba(255,255,255,0.95)',
-              backdropFilter: 'blur(10px)',
-              padding: '8px 20px', borderRadius: 25,
-              boxShadow: '0 5px 15px rgba(0,0,0,0.1)',
-              border: '1px solid rgba(255,255,255,0.3)',
+              position: 'absolute', bottom: 16, left: '50%', transform: 'translateX(-50%)',
+              background: 'rgba(0,0,0,0.6)',
+              backdropFilter: 'blur(8px)',
+              padding: '6px 16px', borderRadius: 20,
+              border: '1px solid rgba(255,255,255,0.15)',
               display: 'flex', alignItems: 'center', gap: 8,
+              zIndex: 10,
             }}>
               <div style={{
-                width: 8, height: 8, borderRadius: '50%',
+                width: 6, height: 6, borderRadius: '50%',
                 background: isAutoCapturing ? '#ef4444' : hasFace ? '#22c55e' : '#f59e0b',
-                animation: 'pulse 2s infinite',
               }}></div>
-              <span style={{ fontSize: 14, fontWeight: 500, color: '#1f2937' }}>
+              <span style={{ fontSize: 12, fontWeight: 500, color: 'white' }}>
                 {countdown !== null
                   ? `Chụp sau ${countdown}s...`
                   : isAutoCapturing
@@ -720,30 +731,19 @@ const WebcamCapture = ({
                       ? `Xác thực ${livenessCompleted.size}/${CHALLENGES.length}`
                       : hasFace
                         ? `${faceCount} khuôn mặt`
-                        : 'Đang tìm khuôn mặt...'}
+                        : 'Đang tìm...'}
               </span>
-              {mode === 'register' && currentPose && !livenessPassed && (
-                <span style={{ fontSize: 11, color: '#6b7280', marginLeft: 8 }}>
-                  {currentPose.yaw > 0.15 ? '← Trái' : currentPose.yaw < -0.15 ? 'Phải →' : '•'}
-                </span>
-              )}
             </div>
-            {/* Floating controls in fullscreen */}
+
             {isFullscreen && (
               <div style={{
                 position: 'absolute', bottom: 0, left: 0, right: 0,
-                background: 'linear-gradient(transparent, rgba(0,0,0,0.7))',
-                padding: '40px 20px 20px',
-                display: 'flex', justifyContent: 'center', gap: 12, zIndex: 20,
+                background: 'linear-gradient(transparent, rgba(0,0,0,0.8))',
+                padding: '48px 16px 20px',
+                display: 'flex', justifyContent: 'center', gap: 10, zIndex: 20,
+                flexWrap: 'wrap',
               }}>
-                <label style={{
-                  display: 'inline-flex', alignItems: 'center', gap: 8,
-                  padding: '10px 20px', borderRadius: 12,
-                  background: 'rgba(255,255,255,0.15)', color: 'white',
-                  cursor: 'pointer', fontSize: 13, fontWeight: 600,
-                  border: '1px solid rgba(255,255,255,0.2)',
-                  ...(isCapturing || !isCameraActive ? { opacity: 0.6, cursor: 'not-allowed' } : {}),
-                }}>
+                <label style={s.btn('rgba(255,255,255,0.15)', 'none')}>
                   <FiUpload size={14} /> Tải ảnh
                   <input type="file" accept="image/*" style={{ display: 'none' }}
                     onChange={handleFileUpload} disabled={isCapturing || !isCameraActive} />
@@ -751,272 +751,194 @@ const WebcamCapture = ({
                 <button onClick={captureImage}
                   disabled={isCapturing || !isCameraActive || !hasFace}
                   style={{
-                    display: 'inline-flex', alignItems: 'center', gap: 8,
-                    padding: '10px 24px', borderRadius: 12,
-                    fontSize: 13, fontWeight: 600, border: 'none', cursor: 'pointer',
-                    background: 'linear-gradient(135deg, #667eea, #764ba2)',
-                    color: 'white',
-                    ...(isCapturing || !isCameraActive || !hasFace ? { opacity: 0.5, cursor: 'not-allowed' } : {}),
+                    ...s.btn('linear-gradient(135deg, #667eea, #764ba2)'),
+                    ...((isCapturing || !isCameraActive || !hasFace) ? { opacity: 0.5, cursor: 'not-allowed' } : {}),
                   }}>
                   <FiCamera size={14} /> Chụp
                 </button>
                 <button onClick={toggleAutoCapture} disabled={isCapturing}
                   style={{
-                    padding: '10px 20px', borderRadius: 12, fontSize: 13,
-                    fontWeight: 600, border: 'none', cursor: 'pointer',
-                    background: isAutoCapturing ? 'rgba(239,68,68,0.4)' : 'rgba(255,255,255,0.15)',
+                    ...s.btn(isAutoCapturing ? 'rgba(239,68,68,0.3)' : 'rgba(255,255,255,0.15)', 'none'),
                     color: isAutoCapturing ? '#fca5a5' : 'white',
                   }}>
-                  {isAutoCapturing ? <><FiSquare size={14} style={{ marginRight: 8 }} />Dừng</>
-                    : <><FiPlay size={14} style={{ marginRight: 8 }} />Tự động</>}
+                  {isAutoCapturing ? <><FiSquare size={14} />Dừng</>
+                    : <><FiPlay size={14} />Tự động</>}
                 </button>
                 <button onClick={toggleFullscreen}
                   style={{
-                    width: 38, height: 38, borderRadius: '50%', border: 'none',
+                    width: 40, height: 40, borderRadius: '50%', border: 'none',
                     background: 'rgba(255,255,255,0.15)', color: 'white',
-                    cursor: 'pointer', alignSelf: 'center',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
                   }}>
                   <FiMinimize2 size={16} />
                 </button>
               </div>
             )}
-            </div>
-          ) : (
-            <div style={{
-              aspectRatio: '640/480', background: '#1f2937',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              borderRadius: 15,
-            }}>
-              <div style={{ textAlign: 'center', padding: 32 }}>
-                <FiVideoOff style={{ margin: '0 auto', height: 64, width: 64, color: '#6b7280', marginBottom: 16 }} />
-                <p style={{ color: '#9ca3af', fontSize: 18, fontWeight: 500 }}>Camera đã tắt</p>
-                <p style={{ color: '#6b7280', fontSize: 14, marginTop: 4 }}>Nhấn nút camera để bật lại</p>
-              </div>
-            </div>
-          )}
-
-          <div style={{
-            position: 'absolute', top: 20, right: 20,
-            display: 'flex', flexDirection: 'column', gap: 10, zIndex: 15,
-          }}>
-            <button
-              onClick={toggleCamera}
-              style={{
-                width: 44, height: 44, border: 'none', borderRadius: '50%',
-                background: 'rgba(255,255,255,0.95)',
-                backdropFilter: 'blur(10px)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                cursor: 'pointer', boxShadow: '0 5px 15px rgba(0,0,0,0.1)',
-              }}
-            >
-              {isCameraActive ? (
-                <FiVideoOff style={{ color: '#374151' }} />
-              ) : (
-                <FiVideo style={{ color: '#374151' }} />
-              )}
-            </button>
-            {/* Fullscreen toggle */}
-            <button
-              onClick={toggleFullscreen}
-              style={{
-                width: 44, height: 44, border: 'none', borderRadius: '50%',
-                background: 'rgba(255,255,255,0.95)',
-                backdropFilter: 'blur(10px)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                cursor: 'pointer', boxShadow: '0 5px 15px rgba(0,0,0,0.1)',
-              }}
-            >
-              {isFullscreen ? (
-                <FiMinimize2 style={{ color: '#374151' }} />
-              ) : (
-                <FiMaximize2 style={{ color: '#374151' }} />
-              )}
-            </button>
           </div>
-      </div>
-
-      <div style={{
-        background: 'white', borderRadius: 20, padding: 24,
-        boxShadow: '0 10px 30px rgba(0,0,0,0.08)',
-        border: '1px solid rgba(0,0,0,0.05)',
-      }}>
-        <div style={{
-          display: 'flex', flexDirection: 'row',
-          justifyContent: 'center', alignItems: 'center',
-          gap: 16, flexWrap: 'wrap',
-        }}>
-          <label style={{
-            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-            padding: '12px 24px',
-            border: '2px dashed #e2e8f0', borderRadius: 12,
-            cursor: 'pointer', transition: 'all 0.3s ease',
-            background: '#f8fafc', fontWeight: 500, color: '#64748b',
-            fontSize: 14,
-            ...(isCapturing || !isCameraActive
-              ? { opacity: 0.6, cursor: 'not-allowed' }
-              : {}),
+        ) : (
+          <div style={{
+            aspectRatio: '4/3', background: '#1a1a2e',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
           }}>
-            <FiUpload style={{ marginRight: 12 }} />
-            <span>Tải ảnh lên</span>
-            <input
-              type="file"
-              accept="image/*"
-              style={{ display: 'none' }}
-              onChange={handleFileUpload}
-              disabled={isCapturing || !isCameraActive}
-            />
-          </label>
+            <div style={{ textAlign: 'center', padding: 32 }}>
+              <FiVideoOff style={{ margin: '0 auto', width: 56, height: 56, color: '#6b7280', marginBottom: 12 }} />
+              <p style={{ color: '#9ca3af', fontSize: 16, fontWeight: 500 }}>Camera đã tắt</p>
+              <p style={{ color: '#6b7280', fontSize: 13, marginTop: 4 }}>Nhấn nút camera để bật lại</p>
+            </div>
+          </div>
+        )}
 
-          <button
-            onClick={captureImage}
-            disabled={isCapturing || !isCameraActive || !hasFace}
+        <div style={{
+          position: 'absolute', top: 12, right: 12,
+          display: 'flex', flexDirection: 'column', gap: 8, zIndex: 15,
+        }}>
+          <button onClick={toggleCamera} title={isCameraActive ? 'Tắt camera' : 'Bật camera'}
             style={{
-              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-              padding: '14px 28px', borderRadius: 12,
-              fontSize: 14, fontWeight: 600, border: 'none', cursor: 'pointer',
-              ...(isCapturing || !isCameraActive || !hasFace
-                ? { background: '#93c5fd', color: 'white', cursor: 'not-allowed' }
-                : {
-                    background: 'linear-gradient(135deg, #3b82f6, #1d4ed8)',
-                    color: 'white',
-                    boxShadow: '0 8px 20px rgba(59,130,246,0.3)',
-                  }),
+              width: 40, height: 40, border: 'none', borderRadius: '50%',
+              background: 'rgba(0,0,0,0.5)',
+              backdropFilter: 'blur(6px)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              cursor: 'pointer', color: 'white',
             }}
           >
-            {isCapturing ? (
-              <>
-                <FiLoader style={{ marginRight: 12, animation: 'spin 1s linear infinite' }} />
-                Đang xử lý...
-              </>
-            ) : (
-              <>
-                <FiCamera style={{ marginRight: 12 }} />
-                Chụp ảnh
-              </>
-            )}
+            {isCameraActive ? <FiVideoOff size={16} /> : <FiVideo size={16} />}
           </button>
-
-          <button
-            onClick={toggleAutoCapture}
-            disabled={!isCameraActive}
-            style={{
-              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-              padding: '14px 28px', borderRadius: 12,
-              fontSize: 14, fontWeight: 600, border: 'none', cursor: 'pointer',
-              ...(isAutoCapturing
-                ? { background: '#ef4444', color: 'white', boxShadow: '0 8px 20px rgba(239,68,68,0.3)' }
-                : isCameraActive
-                  ? { background: '#8b5cf6', color: 'white', boxShadow: '0 8px 20px rgba(139,92,246,0.3)' }
-                  : { background: '#c4b5fd', color: 'white', cursor: 'not-allowed' }),
-            }}
-          >
-            {isAutoCapturing ? (
-              <><FiSquare style={{ marginRight: 12 }} />Dừng</>
-            ) : (
-              <><FiPlay style={{ marginRight: 12 }} />Tự động</>
-            )}
-          </button>
-
-          {mode === 'register' && canRegister && (
-            <button
-              onClick={handleRegister}
-              disabled={isCapturing}
+          {!isFullscreen && (
+            <button onClick={toggleFullscreen} title="Toàn màn hình"
               style={{
-                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                padding: '14px 28px', borderRadius: 12,
-                fontSize: 14, fontWeight: 600, border: 'none', cursor: 'pointer',
-                background: 'linear-gradient(135deg, #10b981, #059669)',
-                color: 'white',
-                boxShadow: '0 8px 20px rgba(16,185,129,0.3)',
+                width: 40, height: 40, border: 'none', borderRadius: '50%',
+                background: 'rgba(0,0,0,0.5)',
+                backdropFilter: 'blur(6px)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                cursor: 'pointer', color: 'white',
               }}
             >
-              <FiSave style={{ marginRight: 12 }} />
-              Đăng ký ({capturedImages.length} ảnh)
+              <FiMaximize2 size={16} />
             </button>
           )}
         </div>
+      </div>
 
-        <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 8 }}>
+      {!isFullscreen && (
+        <div style={s.card(false)}>
+          <div style={{
+            display: 'flex', gap: 10,
+            flexWrap: 'wrap', justifyContent: 'center',
+          }}>
+            <label style={{
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+              padding: '10px 18px',
+              border: '2px dashed #e2e8f0', borderRadius: 12,
+              cursor: 'pointer', background: '#f8fafc', fontWeight: 500, color: '#64748b',
+              fontSize: 13,
+              ...((isCapturing || !isCameraActive) ? { opacity: 0.6, cursor: 'not-allowed' } : {}),
+            }}>
+              <FiUpload size={14} />
+              <span>Tải ảnh</span>
+              <input type="file" accept="image/*" style={{ display: 'none' }}
+                onChange={handleFileUpload} disabled={isCapturing || !isCameraActive} />
+            </label>
+
+            <button onClick={captureImage}
+              disabled={isCapturing || !isCameraActive || !hasFace}
+              style={{
+                ...s.btn(isCapturing || !isCameraActive || !hasFace
+                  ? '#93c5fd' : 'linear-gradient(135deg, #3b82f6, #1d4ed8)',
+                  isCapturing || !isCameraActive || !hasFace
+                    ? 'none' : '0 6px 16px rgba(59,130,246,0.3)'),
+                padding: '10px 20px',
+                ...((isCapturing || !isCameraActive || !hasFace) ? { cursor: 'not-allowed' } : {}),
+              }}>
+              {isCapturing ? <><FiLoader size={14} /> Đang xử lý...</>
+                : <><FiCamera size={14} /> Chụp</>}
+            </button>
+
+            <button onClick={toggleAutoCapture} disabled={!isCameraActive}
+              style={{
+                ...s.btn(isAutoCapturing ? '#ef4444' : isCameraActive ? '#8b5cf6' : '#c4b5fd',
+                  isAutoCapturing ? '0 6px 16px rgba(239,68,68,0.3)' : isCameraActive ? '0 6px 16px rgba(139,92,246,0.3)' : 'none'),
+                padding: '10px 20px',
+                ...((!isCameraActive) ? { cursor: 'not-allowed' } : {}),
+              }}>
+              {isAutoCapturing ? <><FiSquare size={14} />Dừng</>
+                : <><FiPlay size={14} />Tự động</>}
+            </button>
+
+            {mode === 'register' && canRegister && (
+              <button onClick={handleRegister} disabled={isCapturing}
+                style={{
+                  ...s.btn('linear-gradient(135deg, #10b981, #059669)', '0 6px 16px rgba(16,185,129,0.3)'),
+                  padding: '10px 20px',
+                }}>
+                <FiSave size={14} /> Đăng ký ({capturedImages.length})
+              </button>
+            )}
+          </div>
+
           {captureStatus === 'processing' && (
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#1e40af', padding: 8, background: '#eff6ff', borderRadius: 12, border: '1px solid #dbeafe' }}>
-              <FiLoader style={{ marginRight: 8, animation: 'spin 1s linear infinite' }} />
-              <span style={{ fontWeight: 500 }}>Đang xử lý ảnh, vui lòng chờ...</span>
+            <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, color: '#1e40af', padding: 10, background: '#eff6ff', borderRadius: 12, border: '1px solid #dbeafe', fontSize: 13 }}>
+              <FiLoader size={14} /> Đang xử lý ảnh...
             </div>
           )}
-
           {captureStatus === 'success' && (
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#166534', padding: 8, background: '#dcfce7', borderRadius: 12, border: '1px solid #bbf7d0' }}>
-              <FiCheckCircle style={{ marginRight: 8 }} />
-              <span style={{ fontWeight: 500 }}>
-                {mode === 'register'
-                  ? `Đã chụp được ${capturedImages.length} ảnh. Cần ít nhất 5 ảnh để huấn luyện`
-                  : 'Điểm danh thành công!'
-                }
-              </span>
+            <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, color: '#166534', padding: 10, background: '#dcfce7', borderRadius: 12, border: '1px solid #bbf7d0', fontSize: 13 }}>
+              <FiCheckCircle size={14} />
+              <span>{mode === 'register' ? `Đã chụp ${capturedImages.length}/5 ảnh` : 'Điểm danh thành công!'}</span>
             </div>
           )}
-
           {captureStatus === 'error' && (
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#991b1b', padding: 8, background: '#fef2f2', borderRadius: 12, border: '1px solid #fecaca' }}>
-              <FiXCircle style={{ marginRight: 8 }} />
-              <span style={{ fontWeight: 500 }}>Có lỗi xảy ra. Vui lòng thử lại.</span>
+            <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, color: '#991b1b', padding: 10, background: '#fef2f2', borderRadius: 12, border: '1px solid #fecaca', fontSize: 13 }}>
+              <FiXCircle size={14} /> Có lỗi xảy ra
             </div>
           )}
         </div>
-      </div>
+      )}
 
       {capturedImages.length > 0 && (
-        <div style={{
-          background: 'white', borderRadius: 20, padding: 24,
-          boxShadow: '0 10px 30px rgba(0,0,0,0.08)',
-          border: '1px solid rgba(0,0,0,0.05)',
-        }}>
-          <h3 style={{ fontSize: 18, fontWeight: 600, color: '#1f2937', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
-            <FiImage />
-            Ảnh đã chụp ({capturedImages.length} ảnh)
+        <div style={s.card(false)}>
+          <h3 style={{ fontSize: 16, fontWeight: 600, color: textColor, marginBottom: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <FiImage size={18} />
+            Đã chụp ({capturedImages.length})
           </h3>
           <div style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))',
-            gap: 16,
+            gridTemplateColumns: 'repeat(auto-fill, minmax(100px, 1fr))',
+            gap: 12,
           }}>
             {capturedImages.map((image, index) => (
-              <div key={image.id} style={{ position: 'relative', borderRadius: 12, overflow: 'hidden', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}>
-                <img
-                  src={image.src}
-                  alt={`Captured ${index + 1}`}
-                  style={{ width: '100%', height: 100, objectFit: 'cover', border: '2px solid #e2e8f0', borderRadius: 12 }}
-                />
-                <button
-                  onClick={() => removeImage(image.id)}
+              <div key={image.id} style={{
+                position: 'relative', borderRadius: 12, overflow: 'hidden',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+                aspectRatio: '3/4',
+              }}>
+                <img src={image.src} alt={`Ảnh ${index + 1}`}
+                  style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                <button onClick={() => removeImage(image.id)}
                   style={{
-                    position: 'absolute', top: -8, right: -8,
-                    width: 24, height: 24,
-                    background: '#ef4444', color: 'white',
+                    position: 'absolute', top: 4, right: 4,
+                    width: 22, height: 22,
+                    background: 'rgba(239,68,68,0.9)', color: 'white',
                     border: 'none', borderRadius: '50%',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontSize: 14, cursor: 'pointer',
-                    boxShadow: '0 2px 8px rgba(239,68,68,0.3)',
-                  }}
-                  title="Xóa ảnh"
-                >
+                    fontSize: 13, cursor: 'pointer', fontWeight: 700,
+                    boxShadow: '0 2px 6px rgba(239,68,68,0.4)',
+                  }}>
                   ×
                 </button>
                 <div style={{
                   position: 'absolute', bottom: 4, left: 4,
-                  background: 'rgba(0,0,0,0.7)', color: 'white',
-                  padding: '2px 6px', borderRadius: 6,
+                  background: 'rgba(0,0,0,0.65)', color: 'white',
+                  padding: '1px 7px', borderRadius: 6,
                   fontSize: 10, fontWeight: 600,
                 }}>
-                  {index + 1}
+                  #{index + 1}
                 </div>
                 {image.score !== undefined && (
                   <div style={{
                     position: 'absolute', bottom: 4, right: 4,
-                    background: image.score > 0.6 ? 'rgba(16,185,129,0.8)' : 'rgba(251,191,36,0.8)',
+                    background: image.score > 0.6 ? 'rgba(16,185,129,0.85)' : 'rgba(251,191,36,0.85)',
                     color: 'white',
-                    padding: '2px 6px', borderRadius: 6,
+                    padding: '1px 7px', borderRadius: 6,
                     fontSize: 9, fontWeight: 600,
                   }}>
                     {Math.round(image.score * 100)}%
@@ -1029,23 +951,13 @@ const WebcamCapture = ({
       )}
 
       {imgSrc && captureStatus !== 'processing' && (
-        <div style={{
-          background: 'white', borderRadius: 20, padding: 24,
-          boxShadow: '0 10px 30px rgba(0,0,0,0.08)',
-          border: '1px solid rgba(0,0,0,0.05)',
-        }}>
-          <h3 style={{ fontSize: 18, fontWeight: 600, color: '#1f2937', marginBottom: 16, textAlign: 'center' }}>
+        <div style={s.card(false)}>
+          <h3 style={{ fontSize: 16, fontWeight: 600, color: textColor, marginBottom: 14, textAlign: 'center' }}>
             Ảnh vừa chụp
           </h3>
-          <div style={{
-            border: '3px solid #e2e8f0', borderRadius: 12,
-            overflow: 'hidden', background: '#f8fafc',
-          }}>
-            <img
-              src={imgSrc}
-              alt="Vừa chụp"
-              style={{ width: '100%', height: 'auto', maxHeight: 320, objectFit: 'contain' }}
-            />
+          <div style={{ borderRadius: 12, overflow: 'hidden', background: '#f8fafc' }}>
+            <img src={imgSrc} alt="Vừa chụp"
+              style={{ width: '100%', height: 'auto', maxHeight: 300, objectFit: 'contain', display: 'block' }} />
           </div>
         </div>
       )}

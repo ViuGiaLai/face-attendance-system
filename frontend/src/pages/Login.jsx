@@ -5,8 +5,14 @@ import { useTheme } from '../context/ThemeContext';
 import {
   FiMail, FiLock, FiLogIn, FiAlertCircle, FiCamera,
   FiShield, FiCheckCircle, FiEye, FiEyeOff,
-  FiZap, FiClock, FiBarChart2
+  FiZap, FiClock, FiBarChart2, FiUserCheck
 } from 'react-icons/fi';
+
+const DEMO_ACCOUNTS = [
+  { label: 'Quản trị viên', email: 'admin@test.com', password: '123456', color: '#ef4444' },
+  { label: 'Giáo viên', email: 'teacher@test.com', password: '123456', color: '#f59e0b' },
+  { label: 'Học sinh', email: 'student@test.com', password: '123456', color: '#10b981' },
+];
 import './auth.css';
 
 const Login = () => {
@@ -139,6 +145,31 @@ const Login = () => {
                 : <><FiLogIn size={17} /> Đăng nhập</>}
             </button>
           </form>
+
+          <div className="auth-divider" style={{ margin: '20px 0', borderTop: `1px solid ${dark ? '#374151' : '#e5e7eb'}` }} />
+
+          <div className="auth-demo-section">
+            <p style={{ textAlign: 'center', fontSize: 13, color: mutedColor, marginBottom: 10, fontWeight: 600 }}>
+              <FiUserCheck size={13} style={{ marginRight: 4 }} /> Tài khoản dùng thử
+            </p>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'center' }}>
+              {DEMO_ACCOUNTS.map(acc => (
+                <button key={acc.label} type="button"
+                  onClick={() => { setFormData({ email: acc.email, password: acc.password }); setErrors({}); setServerError(''); }}
+                  style={{
+                    flex: 1, minWidth: 90, padding: '8px 10px', borderRadius: 8, border: 'none',
+                    background: dark ? '#374151' : '#f3f4f6', cursor: 'pointer',
+                    color: textColor, fontSize: 12, fontWeight: 600,
+                    transition: 'all .2s', borderLeft: `3px solid ${acc.color}`,
+                  }}
+                  onMouseEnter={e => e.target.style.background = dark ? '#4b5563' : '#e5e7eb'}
+                  onMouseLeave={e => e.target.style.background = dark ? '#374151' : '#f3f4f6'}>
+                  <div style={{ fontSize: 11, opacity: 0.7 }}>{acc.label}</div>
+                  <div style={{ fontSize: 10, opacity: 0.5, marginTop: 2 }}>{acc.email}</div>
+                </button>
+              ))}
+            </div>
+          </div>
 
           <div className="auth-form-footer">
             <p style={{ color: mutedColor }}>Chưa có tài khoản? <Link to="/register" style={{ color: '#667eea' }}>Đăng ký ngay</Link></p>
