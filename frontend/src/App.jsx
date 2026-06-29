@@ -47,11 +47,11 @@ const AppContent = () => {
   }
 
   return (
-    <div className={`app-container ${dark ? 'app-container-dark' : ''}`}>
+    <>
       <Suspense fallback={<Loading />}>
         {user && <Navbar />}
         <div className={`app-content${!user ? ' app-content-full' : ''}`}>
-          <div className="app-main">
+          <div className="app-main" style={{ background: dark ? '#111827' : '#f0f2f5' }}>
             <Routes>
           <Route path="/login" element={
             user ? <Navigate to="/" /> : <Login />
@@ -102,7 +102,7 @@ const AppContent = () => {
           </div>
         </div>
       </Suspense>
-    </div>
+    </>
   );
 };
 
