@@ -26,26 +26,6 @@
   background: #111827;
 }
 
-.app-footer {
-  width: 100% !important;
-  text-align: center !important;
-  padding: 10px 20px;
-  font-size: 11px;
-  color: rgba(107, 114, 128, 0.7);
-  display: flex !important;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  flex-shrink: 0;
-  box-sizing: border-box;
-}
-
-.app-footer .footer-sep {
-  color: #d1d5db;
-  font-size: 10px;
-}
-
 .page-container {
   max-width: 1200px;
   margin: 0 auto;
