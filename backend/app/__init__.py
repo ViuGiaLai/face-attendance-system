@@ -1,7 +1,7 @@
 # Copyright (c) 2026 Viu
 # Licensed under the MIT License.
 
-from flask import Flask
+from flask import Flask, jsonify
 from flask_cors import CORS
 from flask_jwt_extended import JWTManager
 from flask_migrate import Migrate
@@ -22,6 +22,11 @@ def create_app():
     db.init_app(app)
     migrate = Migrate(app, db)
     
+    # Root route
+    @app.route('/')
+    def home():
+        return jsonify({'message': 'Viu API is running'}), 200
+
     # Blueprints
     from app.routes.auth import auth_bp
     from app.routes.attendance import attendance_bp
