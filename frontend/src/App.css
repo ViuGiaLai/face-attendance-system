@@ -1,9 +1,14 @@
 /* ===== Shared Layout ===== */
+.app-container {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
 .app-content {
   display: flex;
   flex-direction: column;
-  min-height: calc(100vh - 60px);
-  background: #f0f2f5;
+  flex: 1;
 }
 
 .app-content-full {
@@ -14,9 +19,14 @@
   flex: 1;
   display: flex;
   flex-direction: column;
+  background: #f0f2f5;
 }
 
-.footer {
+.app-container-dark .app-main {
+  background: #111827;
+}
+
+.app-footer {
   text-align: center;
   padding: 10px 20px;
   font-size: 11px;
@@ -29,17 +39,9 @@
   flex-shrink: 0;
 }
 
-.footer-dark {
-  color: rgba(156, 163, 175, 0.6);
-}
-
-.footer-separator {
+.app-footer .footer-sep {
   color: #d1d5db;
   font-size: 10px;
-}
-
-.footer-dark .footer-separator {
-  color: #4b5563;
 }
 
 .page-container {

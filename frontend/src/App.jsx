@@ -47,7 +47,7 @@ const AppContent = () => {
   }
 
   return (
-    <>
+    <div className={`app-container ${dark ? 'app-container-dark' : ''}`}>
       <Suspense fallback={<Loading />}>
         {user && <Navbar />}
         <div className={`app-content${!user ? ' app-content-full' : ''}`}>
@@ -100,16 +100,18 @@ const AppContent = () => {
           } />
             </Routes>
           </div>
-          {user && (
-            <footer className={`footer ${dark ? 'footer-dark' : ''}`}>
-              <span>© 2026 Viu. All rights reserved.</span>
-              <span className="footer-separator">|</span>
-              <span>Built by Viu</span>
-            </footer>
-          )}
         </div>
       </Suspense>
-    </>
+      <footer className="app-footer" style={{
+        background: !user
+          ? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
+          : dark ? '#111827' : '#f0f2f5',
+      }}>
+        <span>© 2026 Viu. All rights reserved.</span>
+        <span className="footer-sep">|</span>
+        <span>Built by Viu</span>
+      </footer>
+    </div>
   );
 };
 

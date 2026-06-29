@@ -149,13 +149,7 @@ const Navbar = () => {
             display: 'flex', alignItems: 'center', gap: 6,
             textDecoration: 'none', flexShrink: 0, marginRight: 8,
           }}>
-            <div style={{
-              width: 30, height: 30,
-              background: 'linear-gradient(135deg, #667eea, #764ba2)',
-              borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center',
-            }}>
-              <FiCamera size={13} color="white" />
-            </div>
+            <img src="/logo_face.ico" alt="FaceAttendance" style={{ width: 30, height: 30, borderRadius: 8 }} />
             <span style={{
               fontSize: 14, fontWeight: 800, color: textColor,
               letterSpacing: '-0.3px', display: 'none',
@@ -266,13 +260,7 @@ const Navbar = () => {
               marginBottom: 24,
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <div style={{
-                  width: 36, height: 36,
-                  background: 'linear-gradient(135deg, #667eea, #764ba2)',
-                  borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                }}>
-                  <FiCamera size={16} color="white" />
-                </div>
+                <img src="/logo_face.ico" alt="FaceAttendance" style={{ width: 36, height: 36, borderRadius: 10 }} />
                 <span style={{ fontSize: 16, fontWeight: 800, color: textColor }}>FaceAttendance</span>
               </div>
               <button onClick={() => setMobileOpen(false)} style={{

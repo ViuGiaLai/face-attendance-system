@@ -72,7 +72,7 @@ const Login = () => {
       <div className="auth-container">
         <div className="auth-brand">
           <div className="auth-brand-logo">
-            <div className="auth-brand-logo-icon"><FiCamera size={22} /></div>
+            <img src="/logo_face.ico" alt="FaceAttendance" className="auth-brand-logo-icon" style={{ width: 44, height: 44, borderRadius: 12 }} />
             <div>
               <div className="auth-brand-title">FaceAttendance</div>
               <div className="auth-brand-subtitle">Hệ thống điểm danh thông minh</div>
