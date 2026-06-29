@@ -335,14 +335,14 @@ const Dashboard = () => {
                       onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
                       <td style={{ padding: '10px 14px', fontSize: 13, fontWeight: 600, color: textColor, borderBottom: `1px solid ${borderColor}` }}>{record.user_name}</td>
                       <td style={{ padding: '10px 14px', fontSize: 12, color: mutedColor, borderBottom: `1px solid ${borderColor}` }}>{record.class_name || '—'}</td>
-                      <td style={{ padding: '10px 14px', fontSize: 12, color: textColor, borderBottom: `1px solid ${borderColor}` }}>{record.time ? new Date(record.time).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : '—'}</td>
+                      <td style={{ padding: '10px 14px', fontSize: 12, color: textColor, borderBottom: `1px solid ${borderColor}` }}>{record.time ? new Date('2000-01-01T' + record.time).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : '—'}</td>
                       <td style={{ padding: '10px 14px', borderBottom: `1px solid ${borderColor}` }}>
                         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 10px', borderRadius: 6, fontSize: 11, fontWeight: 600, background: dark ? '#14532d' : '#f0fdf4', color: dark ? '#bbf7d0' : '#16a34a' }}>
                           <FiCheckCircle size={11} /> Có mặt
                         </span>
                       </td>
                       <td style={{ padding: '10px 14px', fontSize: 12, color: mutedColor, borderBottom: `1px solid ${borderColor}` }}>{record.confidence ? `${(record.confidence * 100).toFixed(1)}%` : 'N/A'}</td>
-                      <td style={{ padding: '10px 14px', fontSize: 11, color: mutedColor, borderBottom: `1px solid ${borderColor}` }}>{record.time ? new Date(record.time).toLocaleTimeString('vi-VN') : '—'}</td>
+                      <td style={{ padding: '10px 14px', fontSize: 11, color: mutedColor, borderBottom: `1px solid ${borderColor}` }}>{record.time ? new Date('2000-01-01T' + record.time).toLocaleTimeString('vi-VN') : '—'}</td>
                     </tr>
                   ))}
                 </tbody>
