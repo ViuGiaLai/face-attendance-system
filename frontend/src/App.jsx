@@ -100,11 +100,13 @@ const AppContent = () => {
           } />
             </Routes>
           </div>
-          <footer className={`footer ${dark ? 'footer-dark' : ''}`}>
-            <span>© 2026 Viu. All rights reserved.</span>
-            <span className="footer-separator">|</span>
-            <span>Built by Viu</span>
-          </footer>
+          {user && (
+            <footer className={`footer ${dark ? 'footer-dark' : ''}`}>
+              <span>© 2026 Viu. All rights reserved.</span>
+              <span className="footer-separator">|</span>
+              <span>Built by Viu</span>
+            </footer>
+          )}
         </div>
       </Suspense>
     </>
