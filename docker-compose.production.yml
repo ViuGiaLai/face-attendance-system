@@ -1,0 +1,31 @@
+services:
+  backend:
+    image: ghcr.io/viugialai/face-attendance-backend:${IMAGE_TAG:-latest}
+    env_file:
+      - ./backend/.env
+    environment:
+      REDIS_URL: redis://redis:6379/0
+    restart: unless-stopped
+    expose:
+      - "5000"
+    depends_on:
+      redis:
+        condition: service_started
+
+  frontend:
+    image: ghcr.io/viugialai/face-attendance-frontend:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+
+volumes:
+  redis_data:
